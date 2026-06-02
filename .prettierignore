@@ -1,0 +1,8 @@
+node_modules
+.omo
+.svelte-kit
+build
+coverage
+playwright-report
+test-results
+data
