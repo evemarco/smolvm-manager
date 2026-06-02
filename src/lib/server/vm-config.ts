@@ -601,9 +601,9 @@ export function machineResponseToConfig(machine: Record<string, unknown>): VmCon
     config.volumes = machine.mounts.map(
       (m: Record<string, unknown>) =>
         ({
-          host: String(m.host),
-          guest: String(m.guest),
-          ...(m.readOnly ? { readOnly: true } : {})
+          host: String(m.source ?? m.host),
+          guest: String(m.target ?? m.guest),
+          ...(m.readonly ? { readOnly: true } : m.readOnly ? { readOnly: true } : {})
         }) as VmVolumeMount
     );
   }

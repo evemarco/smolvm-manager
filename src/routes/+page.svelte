@@ -219,9 +219,9 @@
     }
     if (Array.isArray(machine.mounts)) {
       config.volumes = machine.mounts.map((m: Record<string, unknown>) => ({
-        host: String(m.host),
-        guest: String(m.guest),
-        ...(m.readOnly ? { readOnly: true } : {})
+        host: String(m.source ?? m.host),
+        guest: String(m.target ?? m.guest),
+        ...(m.readonly ? { readOnly: true } : m.readOnly ? { readOnly: true } : {})
       }));
     }
     if (typeof machine.env === 'object' && machine.env !== null && !Array.isArray(machine.env)) {
@@ -238,11 +238,13 @@
     vmFormMode = 'copy';
     vmFormExistingName = machine.name;
     const config: VmConfig = { name: `${machine.name}-copy` };
-    // Copy all config from machine
     if (typeof machine.cpus === 'number') config.cpus = machine.cpus;
     if (typeof machine.memoryMb === 'number') config.memory = machine.memoryMb;
     if (typeof machine.memory === 'number') config.memory = machine.memory;
+    if (typeof machine.storage === 'number') config.storage = machine.storage;
+    if (typeof machine.overlay === 'number') config.overlay = machine.overlay;
     if (typeof machine.network === 'boolean') config.net = machine.network;
+    if (typeof machine.gpu === 'boolean') config.gpu = machine.gpu;
     if (typeof machine.image === 'string') {
       const colonIdx = machine.image.lastIndexOf(':');
       if (colonIdx > 0) {
@@ -260,9 +262,9 @@
     }
     if (Array.isArray(machine.mounts)) {
       config.volumes = machine.mounts.map((m: Record<string, unknown>) => ({
-        host: String(m.host),
-        guest: String(m.guest),
-        ...(m.readOnly ? { readOnly: true } : {})
+        host: String(m.source ?? m.host),
+        guest: String(m.target ?? m.guest),
+        ...(m.readonly ? { readOnly: true } : m.readOnly ? { readOnly: true } : {})
       }));
     }
     if (typeof machine.env === 'object' && machine.env !== null && !Array.isArray(machine.env)) {

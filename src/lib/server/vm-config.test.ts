@@ -349,6 +349,48 @@ describe('vm-config: API request conversion', () => {
     expect(req.sshAgent).toBe(true);
   });
 
+  it('sends network (not net) in create request', () => {
+    const config: VmConfig = { name: 'net-test', net: true };
+    const req = configToCreateRequest(config);
+    expect(req.network).toBe(true);
+    expect('net' in req).toBe(false);
+  });
+
+  it('sends mounts with source/target/readonly (not host/guest/readOnly)', () => {
+    const config: VmConfig = {
+      name: 'mount-test',
+      volumes: [
+        { host: '/host/a', guest: '/guest/a' },
+        { host: '/host/b', guest: '/guest/b', readOnly: true }
+      ]
+    };
+    const req = configToCreateRequest(config);
+    expect(req.mounts).toEqual([
+      { source: '/host/a', target: '/guest/a' },
+      { source: '/host/b', target: '/guest/b', readonly: true }
+    ]);
+    expect('volumes' in req).toBe(false);
+  });
+
+  it('sends memoryMb/storageGb/overlayGb/gpuVramMb (not memory/storage/overlay/gpuVram)', () => {
+    const config: VmConfig = {
+      name: 'field-test',
+      memory: 1024,
+      storage: 20,
+      overlay: 10,
+      gpuVram: 8192
+    };
+    const req = configToCreateRequest(config);
+    expect(req.memoryMb).toBe(1024);
+    expect(req.storageGb).toBe(20);
+    expect(req.overlayGb).toBe(10);
+    expect(req.gpuVramMb).toBe(8192);
+    expect('memory' in req).toBe(false);
+    expect('storage' in req).toBe(false);
+    expect('overlay' in req).toBe(false);
+    expect('gpuVram' in req).toBe(false);
+  });
+
   it('converts config to update request (excludes recreate fields)', () => {
     const config: VmConfig = {
       name: 'vm',
@@ -373,7 +415,7 @@ describe('vm-config: machine response to config', () => {
       state: 'stopped',
       cpus: 2,
       memoryMb: 512,
-      mounts: [{ host: '/data', guest: '/app' }],
+      mounts: [{ source: '/data', target: '/app', readonly: true }],
       ports: [{ host: 8080, guest: 80 }],
       network: true,
       createdAt: 1234567890
@@ -384,7 +426,45 @@ describe('vm-config: machine response to config', () => {
     expect(config.memory).toBe(512);
     expect(config.net).toBe(true);
     expect(config.ports).toEqual([{ host: 8080, guest: 80 }]);
-    expect(config.volumes).toEqual([{ host: '/data', guest: '/app' }]);
+    expect(config.volumes).toEqual([{ host: '/data', guest: '/app', readOnly: true }]);
+  });
+
+  it('converts SmolVM mounts with source/target/readonly fields', () => {
+    const machine = {
+      name: 'mount-vm',
+      mounts: [
+        { source: '/host/path', target: '/guest/path' },
+        { source: '/host/ro', target: '/guest/ro', readonly: true }
+      ]
+    };
+    const config = machineResponseToConfig(machine);
+    expect(config.volumes).toEqual([
+      { host: '/host/path', guest: '/guest/path' },
+      { host: '/host/ro', guest: '/guest/ro', readOnly: true }
+    ]);
+  });
+
+  it('falls back to host/guest/readOnly for legacy mount fields', () => {
+    const machine = {
+      name: 'legacy-vm',
+      mounts: [{ host: '/legacy/host', guest: '/legacy/guest', readOnly: true }]
+    };
+    const config = machineResponseToConfig(machine);
+    expect(config.volumes).toEqual([
+      { host: '/legacy/host', guest: '/legacy/guest', readOnly: true }
+    ]);
+  });
+
+  it('prefers source/target over host/guest when both present', () => {
+    const machine = {
+      name: 'mixed-vm',
+      mounts: [
+        { source: '/new/path', target: '/new/guest', host: '/old/path', guest: '/old/guest' }
+      ]
+    };
+    const config = machineResponseToConfig(machine);
+    expect(config.volumes![0].host).toBe('/new/path');
+    expect(config.volumes![0].guest).toBe('/new/guest');
   });
 
   it('parses image with tag from machine response', () => {
