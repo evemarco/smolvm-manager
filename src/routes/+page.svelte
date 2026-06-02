@@ -3,10 +3,12 @@
   import { Plus, Search, RefreshCw, Loader2, AlertCircle, Monitor } from '@lucide/svelte';
   import { appName } from '$lib/site';
   import { toasts } from '$lib/toast';
-  import type { SmolVmMachine } from '$lib/types';
+  import type { SmolVmMachine, ImagePickerSelection } from '$lib/types';
   import ViewToggle from '$lib/components/ViewToggle.svelte';
   import ConfirmationModal from '$lib/components/ConfirmationModal.svelte';
   import ToastContainer from '$lib/components/ToastContainer.svelte';
+  import ImagePicker from '$lib/components/ImagePicker.svelte';
+  import BrowseImagesButton from '$lib/components/BrowseImagesButton.svelte';
   import VmCard from './VmCard.svelte';
   import VmTable from './VmTable.svelte';
   import VmDetail from './VmDetail.svelte';
@@ -31,6 +33,7 @@
 
   // Action loading states
   let actionLoading: Record<string, boolean> = $state({});
+  let pickerOpen = $state(false);
 
   let csrfToken = $derived(data.csrfToken ?? '');
 
@@ -188,6 +191,16 @@
   onCancel={() => (confirmOpen = false)}
 />
 
+{#if pickerOpen}
+  <ImagePicker
+    onSelect={(selection: ImagePickerSelection) => {
+      toasts.push(`Selected image: ${selection.fullName}`, 'success');
+      pickerOpen = false;
+    }}
+    onClose={() => (pickerOpen = false)}
+  />
+{/if}
+
 <main class="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-6 py-8 lg:px-10">
   <!-- Header -->
   <header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -204,6 +217,7 @@
         <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
         Refresh
       </button>
+      <BrowseImagesButton onClick={() => (pickerOpen = true)} />
       <button
         class="flex items-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed"
         disabled
@@ -272,13 +286,16 @@
           Get started by creating your first SmolVM machine.
         </p>
       </div>
-      <button
-        class="mt-2 flex items-center gap-2 rounded-lg bg-cyan-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed"
-        disabled
-      >
-        <Plus size={16} />
-        Create VM
-      </button>
+      <div class="mt-2 flex items-center gap-2">
+        <BrowseImagesButton onClick={() => (pickerOpen = true)} />
+        <button
+          class="flex items-center gap-2 rounded-lg bg-cyan-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <Plus size={16} />
+          Create VM
+        </button>
+      </div>
     </div>
   {:else if filteredMachines().length === 0}
     <div class="flex flex-col items-center justify-center gap-3 py-16">
