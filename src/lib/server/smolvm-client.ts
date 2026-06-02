@@ -1,4 +1,4 @@
-import { request as httpRequest } from 'node:http';
+import { request as httpRequest, type IncomingMessage } from 'node:http';
 
 export const DEFAULT_SMOLVM_SOCKET = '/tmp/smolvm.sock';
 
@@ -70,6 +70,13 @@ export type SmolVmRequestOptions = {
   responseType?: 'json' | 'text';
 };
 
+export type SmolVmStreamOptions = {
+  method: 'GET' | 'POST';
+  path: string;
+  body?: unknown;
+  signal?: AbortSignal;
+};
+
 export type SmolVmTransportResponse = {
   status: number;
   headers: Record<string, string | undefined>;
@@ -81,9 +88,28 @@ export type SmolVmTransport = (
   options: SmolVmRequestOptions
 ) => Promise<SmolVmTransportResponse>;
 
+export type SmolVmStreamResponse = {
+  status: number;
+  headers: Record<string, string | undefined>;
+  stream: AsyncIterable<Uint8Array>;
+  close: () => void;
+};
+
+export type SmolVmStreamTransport = (
+  socketPath: string,
+  options: SmolVmStreamOptions
+) => Promise<SmolVmStreamResponse>;
+
 export type SmolVmClientOptions = {
   socketPath?: string;
   transport?: SmolVmTransport;
+  streamTransport?: SmolVmStreamTransport;
+};
+
+export type SmolVmLogStreamOptions = {
+  tail: number;
+  follow: boolean;
+  signal?: AbortSignal;
 };
 
 export type SmolVmCreateMachineBody = Record<string, unknown>;
@@ -99,6 +125,7 @@ export type SmolVmClient = {
   startMachine(name: string): Promise<SmolVmActionResult>;
   stopMachine(name: string): Promise<SmolVmActionResult>;
   deleteMachine(name: string): Promise<SmolVmActionResult>;
+  openLogStream(name: string, options: SmolVmLogStreamOptions): Promise<SmolVmStreamResponse>;
   getExecPlaceholder(name: string): SmolVmPlaceholder;
   getFilesPlaceholder(name: string): SmolVmPlaceholder;
   getLogsPlaceholder(name: string): SmolVmPlaceholder;
@@ -208,6 +235,52 @@ async function requestOverUnixSocket(
   });
 }
 
+async function streamOverUnixSocket(
+  socketPath: string,
+  options: SmolVmStreamOptions
+): Promise<SmolVmStreamResponse> {
+  const requestBody = options.body === undefined ? undefined : JSON.stringify(options.body);
+
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(
+      {
+        socketPath,
+        method: options.method,
+        path: options.path,
+        headers: {
+          Accept: 'text/plain, text/event-stream',
+          ...(requestBody
+            ? {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(requestBody).toString()
+              }
+            : {})
+        }
+      },
+      (response: IncomingMessage) => {
+        const headers: Record<string, string | undefined> = {};
+        for (const [key, value] of Object.entries(response.headers)) {
+          headers[key] = Array.isArray(value) ? value.join(', ') : value;
+        }
+
+        resolve({
+          status: response.statusCode ?? 0,
+          headers,
+          stream: response as AsyncIterable<Uint8Array>,
+          close: () => request.destroy()
+        });
+      }
+    );
+
+    const abort = () => request.destroy(new Error('Request aborted'));
+    options.signal?.addEventListener('abort', abort, { once: true });
+    request.on('error', (error) => reject(error));
+    request.on('close', () => options.signal?.removeEventListener('abort', abort));
+    if (requestBody) request.write(requestBody);
+    request.end();
+  });
+}
+
 async function callSmolVm<T>(
   socketPath: string,
   transport: SmolVmTransport,
@@ -261,6 +334,7 @@ function placeholder(feature: SmolVmPlaceholder['feature']): SmolVmPlaceholder {
 export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmClient {
   const socketPath = options.socketPath ?? getConfiguredSocketPath();
   const transport = options.transport ?? requestOverUnixSocket;
+  const streamTransport = options.streamTransport ?? streamOverUnixSocket;
 
   return {
     socketPath,
@@ -337,6 +411,37 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
         { method: 'DELETE', path: `/api/v1/machines/${safeMachinePath(name)}` },
         (value) => value as SmolVmActionResult
       );
+    },
+
+    async openLogStream(name, options) {
+      const params = new URLSearchParams({ tail: String(options.tail) });
+      if (options.follow) params.set('follow', '1');
+
+      let response: SmolVmStreamResponse;
+      try {
+        response = await streamTransport(socketPath, {
+          method: 'GET',
+          path: `/api/v1/machines/${safeMachinePath(name)}/logs?${params.toString()}`,
+          signal: options.signal
+        });
+      } catch {
+        throw new SmolVmError(
+          SMOLVM_ERROR_CODES.UNREACHABLE,
+          'SmolVM is unreachable on its local Unix socket.',
+          503
+        );
+      }
+
+      if (response.status < 200 || response.status >= 300) {
+        response.close();
+        throw new SmolVmError(
+          SMOLVM_ERROR_CODES.REQUEST_FAILED,
+          'SmolVM log stream request failed.',
+          response.status || 502
+        );
+      }
+
+      return response;
     },
 
     createMachine(body) {
