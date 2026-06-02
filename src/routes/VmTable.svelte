@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Play, Square, RotateCw, Trash2, Loader2 } from '@lucide/svelte';
+  import { Play, Square, RotateCw, Trash2, Loader2, Pencil, Copy } from '@lucide/svelte';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import type { SmolVmMachine } from '$lib/types';
 
@@ -10,6 +10,8 @@
     onStop,
     onRestart,
     onDelete,
+    onEdit,
+    onCopy,
     actionLoading = {}
   }: {
     machines: SmolVmMachine[];
@@ -18,6 +20,8 @@
     onStop: (m: SmolVmMachine) => void;
     onRestart: (m: SmolVmMachine) => void;
     onDelete: (m: SmolVmMachine) => void;
+    onEdit?: (m: SmolVmMachine) => void;
+    onCopy?: (m: SmolVmMachine) => void;
     actionLoading?: Record<string, boolean>;
   } = $props();
 </script>
@@ -76,6 +80,20 @@
                     {/if}
                   </button>
                 {/if}
+                <button
+                  class="rounded-md p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-cyan-400"
+                  onclick={() => onEdit?.(machine)}
+                  aria-label="Edit {machine.name}"
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  class="rounded-md p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-cyan-400"
+                  onclick={() => onCopy?.(machine)}
+                  aria-label="Copy {machine.name}"
+                >
+                  <Copy size={14} />
+                </button>
                 <button
                   class="rounded-md p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-amber-400"
                   onclick={() => onRestart(machine)}

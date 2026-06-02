@@ -1,5 +1,15 @@
 <script lang="ts">
-  import { ArrowLeft, Play, Square, RotateCw, Trash2, Loader2, Server } from '@lucide/svelte';
+  import {
+    ArrowLeft,
+    Play,
+    Square,
+    RotateCw,
+    Trash2,
+    Loader2,
+    Server,
+    Copy,
+    Pencil
+  } from '@lucide/svelte';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import type { SmolVmMachine, TabId } from '$lib/types';
 
@@ -10,6 +20,8 @@
     onStop,
     onRestart,
     onDelete,
+    onEdit,
+    onCopy,
     actionLoading = {}
   }: {
     machine: SmolVmMachine;
@@ -18,6 +30,8 @@
     onStop: (m: SmolVmMachine) => void;
     onRestart: (m: SmolVmMachine) => void;
     onDelete: (m: SmolVmMachine) => void;
+    onEdit?: (m: SmolVmMachine) => void;
+    onCopy?: (m: SmolVmMachine) => void;
     actionLoading?: Record<string, boolean>;
   } = $props();
 
@@ -28,14 +42,13 @@
 
   const tabs: { id: TabId; label: string; disabled?: boolean }[] = [
     { id: 'overview', label: 'Overview' },
-    { id: 'config', label: 'Config', disabled: true },
+    { id: 'config', label: 'Config' },
     { id: 'logs', label: 'Logs', disabled: true },
     { id: 'terminal', label: 'Terminal', disabled: true },
     { id: 'metrics', label: 'Metrics', disabled: true }
   ];
 
   const placeholderMessages: Record<string, string> = {
-    config: 'VM configuration editing will be available in a future update.',
     logs: 'Real-time log streaming will be available in a future update.',
     terminal: 'Browser terminal access will be available in a future update.',
     metrics: 'Live metrics and history charts will be available in a future update.'
@@ -88,7 +101,21 @@
         </button>
       {/if}
       <button
-        class="flex items-center gap-1.5 rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm font-medium text-amber-300 transition hover:bg-slate-700 hover:text-amber-200 disabled:opacity-50"
+        class="flex items-center gap-1.5 rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white disabled:opacity-50"
+        onclick={() => onEdit?.(machine)}
+      >
+        <Pencil size={14} />
+        Edit
+      </button>
+      <button
+        class="flex items-center gap-1.5 rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white disabled:opacity-50"
+        onclick={() => onCopy?.(machine)}
+      >
+        <Copy size={14} />
+        Copy
+      </button>
+      <button
+        class="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-300 transition hover:bg-amber-500/20 disabled:opacity-50"
         onclick={() => onRestart(machine)}
         disabled={actionLoading[`restart-${machine.name}`]}
       >
@@ -151,6 +178,17 @@
             {/if}
           {/each}
         </div>
+      </div>
+    {:else if activeTab === 'config'}
+      <div class="flex flex-col items-center justify-center gap-3 py-8">
+        <p class="text-sm text-slate-400">Edit this VM's configuration.</p>
+        <button
+          class="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-500"
+          onclick={() => onEdit?.(machine)}
+        >
+          <Pencil size={14} />
+          Edit Configuration
+        </button>
       </div>
     {:else}
       <div class="flex flex-col items-center justify-center gap-3 py-12">

@@ -3,12 +3,13 @@
   import { Plus, Search, RefreshCw, Loader2, AlertCircle, Monitor } from '@lucide/svelte';
   import { appName } from '$lib/site';
   import { toasts } from '$lib/toast';
-  import type { SmolVmMachine, ImagePickerSelection } from '$lib/types';
+  import type { SmolVmMachine, ImagePickerSelection, VmConfig, VmFormMode } from '$lib/types';
   import ViewToggle from '$lib/components/ViewToggle.svelte';
   import ConfirmationModal from '$lib/components/ConfirmationModal.svelte';
   import ToastContainer from '$lib/components/ToastContainer.svelte';
   import ImagePicker from '$lib/components/ImagePicker.svelte';
   import BrowseImagesButton from '$lib/components/BrowseImagesButton.svelte';
+  import VmConfigForm from '$lib/components/VmConfigForm.svelte';
   import VmCard from './VmCard.svelte';
   import VmTable from './VmTable.svelte';
   import VmDetail from './VmDetail.svelte';
@@ -34,6 +35,12 @@
   // Action loading states
   let actionLoading: Record<string, boolean> = $state({});
   let pickerOpen = $state(false);
+
+  // VM config form state
+  let vmFormOpen = $state(false);
+  let vmFormMode: VmFormMode = $state('create');
+  let vmFormInitialConfig: VmConfig | undefined = $state(undefined);
+  let vmFormExistingName: string | undefined = $state(undefined);
 
   let csrfToken = $derived(data.csrfToken ?? '');
 
@@ -172,6 +179,158 @@
     }
   }
 
+  function openCreateVm() {
+    vmFormMode = 'create';
+    vmFormInitialConfig = undefined;
+    vmFormExistingName = undefined;
+    vmFormOpen = true;
+  }
+
+  function openEditVm(machine: SmolVmMachine) {
+    vmFormMode = 'edit';
+    vmFormExistingName = machine.name;
+    // Convert machine response to config
+    const config: VmConfig = { name: machine.name };
+    if (typeof machine.cpus === 'number') config.cpus = machine.cpus;
+    if (typeof machine.memoryMb === 'number') config.memory = machine.memoryMb;
+    if (typeof machine.memory === 'number') config.memory = machine.memory;
+    if (typeof machine.storage === 'number') config.storage = machine.storage;
+    if (typeof machine.overlay === 'number') config.overlay = machine.overlay;
+    if (typeof machine.network === 'boolean') config.net = machine.network;
+    if (typeof machine.gpu === 'boolean') config.gpu = machine.gpu;
+    if (typeof machine.workdir === 'string') config.workdir = machine.workdir;
+    if (typeof machine.entrypoint === 'string') config.entrypoint = machine.entrypoint;
+    if (typeof machine.cmd === 'string') config.cmd = machine.cmd;
+    if (typeof machine.sshAgent === 'boolean') config.sshAgent = machine.sshAgent;
+    if (typeof machine.image === 'string') {
+      const colonIdx = machine.image.lastIndexOf(':');
+      if (colonIdx > 0) {
+        config.image = machine.image.slice(0, colonIdx);
+        config.tag = machine.image.slice(colonIdx + 1);
+      } else {
+        config.image = machine.image;
+      }
+    }
+    if (Array.isArray(machine.ports)) {
+      config.ports = machine.ports.map((p: Record<string, unknown>) => ({
+        host: Number(p.host),
+        guest: Number(p.guest)
+      }));
+    }
+    if (Array.isArray(machine.mounts)) {
+      config.volumes = machine.mounts.map((m: Record<string, unknown>) => ({
+        host: String(m.host),
+        guest: String(m.guest),
+        ...(m.readOnly ? { readOnly: true } : {})
+      }));
+    }
+    if (typeof machine.env === 'object' && machine.env !== null && !Array.isArray(machine.env)) {
+      config.env = machine.env as Record<string, string>;
+    }
+    if (Array.isArray(machine.init)) {
+      config.init = machine.init.map(String);
+    }
+    vmFormInitialConfig = config;
+    vmFormOpen = true;
+  }
+
+  function openCopyVm(machine: SmolVmMachine) {
+    vmFormMode = 'copy';
+    vmFormExistingName = machine.name;
+    const config: VmConfig = { name: `${machine.name}-copy` };
+    // Copy all config from machine
+    if (typeof machine.cpus === 'number') config.cpus = machine.cpus;
+    if (typeof machine.memoryMb === 'number') config.memory = machine.memoryMb;
+    if (typeof machine.memory === 'number') config.memory = machine.memory;
+    if (typeof machine.network === 'boolean') config.net = machine.network;
+    if (typeof machine.image === 'string') {
+      const colonIdx = machine.image.lastIndexOf(':');
+      if (colonIdx > 0) {
+        config.image = machine.image.slice(0, colonIdx);
+        config.tag = machine.image.slice(colonIdx + 1);
+      } else {
+        config.image = machine.image;
+      }
+    }
+    if (Array.isArray(machine.ports)) {
+      config.ports = machine.ports.map((p: Record<string, unknown>) => ({
+        host: Number(p.host),
+        guest: Number(p.guest)
+      }));
+    }
+    if (Array.isArray(machine.mounts)) {
+      config.volumes = machine.mounts.map((m: Record<string, unknown>) => ({
+        host: String(m.host),
+        guest: String(m.guest),
+        ...(m.readOnly ? { readOnly: true } : {})
+      }));
+    }
+    if (typeof machine.env === 'object' && machine.env !== null && !Array.isArray(machine.env)) {
+      config.env = { ...(machine.env as Record<string, string>) };
+    }
+    vmFormInitialConfig = config;
+    vmFormOpen = true;
+  }
+
+  async function handleVmFormSave(config: VmConfig) {
+    try {
+      if (vmFormMode === 'create' || vmFormMode === 'copy') {
+        const response = await fetch('/api/smolvm/machines/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken
+          },
+          body: JSON.stringify(config)
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          throw new Error(body?.message ?? body?.error ?? `Create failed (${response.status})`);
+        }
+        toasts.push(`VM "${config.name}" created`, 'success');
+      } else if (vmFormMode === 'edit') {
+        const name = vmFormExistingName ?? config.name;
+        const response = await fetch(`/api/smolvm/machines/${encodeURIComponent(name)}/update`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken
+          },
+          body: JSON.stringify(config)
+        });
+        if (response.status === 409) {
+          // Recreate required - handled by the form's confirmation modal
+          const body = await response.json();
+          throw new Error(body.message ?? 'Recreate required');
+        }
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          throw new Error(body?.message ?? body?.error ?? `Update failed (${response.status})`);
+        }
+        toasts.push(`VM "${name}" updated`, 'success');
+      } else if (vmFormMode === 'recreate') {
+        const name = vmFormExistingName ?? config.name;
+        const response = await fetch(`/api/smolvm/machines/${encodeURIComponent(name)}/recreate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken
+          },
+          body: JSON.stringify(config)
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          throw new Error(body?.message ?? body?.error ?? `Recreate failed (${response.status})`);
+        }
+        toasts.push(`VM "${name}" recreated`, 'success');
+      }
+      vmFormOpen = false;
+      await fetchMachines();
+    } catch (err) {
+      toasts.push(err instanceof Error ? err.message : 'Operation failed', 'error');
+    }
+  }
+
   onMount(fetchMachines);
 </script>
 
@@ -201,6 +360,31 @@
   />
 {/if}
 
+{#if vmFormOpen}
+  <div
+    class="fixed inset-0 z-40 overflow-y-auto bg-black/60 backdrop-blur-sm"
+    onclick={(e) => {
+      if (e.target === e.currentTarget) vmFormOpen = false;
+    }}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') vmFormOpen = false;
+    }}
+  >
+    <div class="mx-auto max-w-3xl p-4 py-8">
+      <div class="rounded-2xl border border-white/10 bg-slate-900 p-6 shadow-2xl">
+        <VmConfigForm
+          mode={vmFormMode}
+          initialConfig={vmFormInitialConfig}
+          existingMachineName={vmFormExistingName}
+          {csrfToken}
+          onSave={handleVmFormSave}
+          onCancel={() => (vmFormOpen = false)}
+        />
+      </div>
+    </div>
+  </div>
+{/if}
+
 <main class="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-6 py-8 lg:px-10">
   <!-- Header -->
   <header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -220,7 +404,7 @@
       <BrowseImagesButton onClick={() => (pickerOpen = true)} />
       <button
         class="flex items-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed"
-        disabled
+        onclick={openCreateVm}
         aria-label="Create new virtual machine"
       >
         <Plus size={16} />
@@ -289,8 +473,8 @@
       <div class="mt-2 flex items-center gap-2">
         <BrowseImagesButton onClick={() => (pickerOpen = true)} />
         <button
-          class="flex items-center gap-2 rounded-lg bg-cyan-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled
+          class="flex items-center gap-2 rounded-lg bg-cyan-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-cyan-400"
+          onclick={openCreateVm}
         >
           <Plus size={16} />
           Create VM
@@ -310,6 +494,8 @@
       onStop={(m) => lifecycleAction(m.name, 'stop')}
       onRestart={(m) => confirmRestart(m)}
       onDelete={(m) => confirmDelete(m)}
+      onEdit={(m) => openEditVm(m)}
+      onCopy={(m) => openCopyVm(m)}
       {actionLoading}
     />
   {:else if viewMode === 'cards'}
@@ -322,6 +508,8 @@
           onStop={(m) => lifecycleAction(m.name, 'stop')}
           onRestart={(m) => confirmRestart(m)}
           onDelete={(m) => confirmDelete(m)}
+          onEdit={(m) => openEditVm(m)}
+          onCopy={(m) => openCopyVm(m)}
           {actionLoading}
         />
       {/each}
@@ -334,6 +522,8 @@
       onStop={(m) => lifecycleAction(m.name, 'stop')}
       onRestart={(m) => confirmRestart(m)}
       onDelete={(m) => confirmDelete(m)}
+      onEdit={(m) => openEditVm(m)}
+      onCopy={(m) => openCopyVm(m)}
       {actionLoading}
     />
   {/if}

@@ -1,5 +1,15 @@
 <script lang="ts">
-  import { Play, Square, RotateCw, Trash2, Loader2, MoreVertical, Monitor } from '@lucide/svelte';
+  import {
+    Play,
+    Square,
+    RotateCw,
+    Trash2,
+    Loader2,
+    MoreVertical,
+    Monitor,
+    Pencil,
+    Copy
+  } from '@lucide/svelte';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import type { SmolVmMachine } from '$lib/types';
 
@@ -10,6 +20,8 @@
     onStop,
     onRestart,
     onDelete,
+    onEdit,
+    onCopy,
     actionLoading = {}
   }: {
     machine: SmolVmMachine;
@@ -18,6 +30,8 @@
     onStop: (m: SmolVmMachine) => void;
     onRestart: (m: SmolVmMachine) => void;
     onDelete: (m: SmolVmMachine) => void;
+    onEdit?: (m: SmolVmMachine) => void;
+    onCopy?: (m: SmolVmMachine) => void;
     actionLoading?: Record<string, boolean>;
   } = $props();
 
@@ -108,6 +122,26 @@
             >
               <RotateCw size={14} />
               Restart
+            </button>
+            <button
+              class="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-300 transition hover:bg-white/5 hover:text-white"
+              onclick={() => {
+                onEdit?.(machine);
+                closeMenu();
+              }}
+            >
+              <Pencil size={14} />
+              Edit Config
+            </button>
+            <button
+              class="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-300 transition hover:bg-white/5 hover:text-white"
+              onclick={() => {
+                onCopy?.(machine);
+                closeMenu();
+              }}
+            >
+              <Copy size={14} />
+              Copy Config
             </button>
             <div class="my-1 border-t border-white/5"></div>
             <button

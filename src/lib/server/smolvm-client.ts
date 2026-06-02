@@ -64,7 +64,7 @@ export type SmolVmPlaceholder = {
 };
 
 export type SmolVmRequestOptions = {
-  method: 'GET' | 'POST' | 'DELETE';
+  method: 'GET' | 'POST' | 'DELETE' | 'PATCH';
   path: string;
   body?: unknown;
   responseType?: 'json' | 'text';
@@ -86,6 +86,8 @@ export type SmolVmClientOptions = {
   transport?: SmolVmTransport;
 };
 
+export type SmolVmCreateMachineBody = Record<string, unknown>;
+
 export type SmolVmClient = {
   socketPath: string;
   getHealth(): Promise<SmolVmHealth>;
@@ -93,6 +95,7 @@ export type SmolVmClient = {
   getMetrics(): Promise<string>;
   listMachines(): Promise<SmolVmMachineList>;
   getMachine(name: string): Promise<SmolVmMachine>;
+  createMachine(body: SmolVmCreateMachineBody): Promise<SmolVmMachine>;
   startMachine(name: string): Promise<SmolVmActionResult>;
   stopMachine(name: string): Promise<SmolVmActionResult>;
   deleteMachine(name: string): Promise<SmolVmActionResult>;
@@ -333,6 +336,19 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
         transport,
         { method: 'DELETE', path: `/api/v1/machines/${safeMachinePath(name)}` },
         (value) => value as SmolVmActionResult
+      );
+    },
+
+    createMachine(body) {
+      return callSmolVm(
+        socketPath,
+        transport,
+        {
+          method: 'POST',
+          path: '/api/v1/machines',
+          body
+        },
+        asMachine
       );
     },
 

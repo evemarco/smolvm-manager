@@ -2,12 +2,10 @@ import { requireSmolVmAdmin } from '$lib/server/smolvm-api';
 import { validateVmConfig, configToCreateRequest } from '$lib/server/vm-config';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = async ({ locals }) =>
-  requireSmolVmAdmin({ locals }, (client) => client.listMachines());
-
-export const POST: RequestHandler = async ({ locals, request }) => {
+export const POST: RequestHandler = async ({ locals, params, request }) => {
   const body = await request.json();
   const config = body.config ?? body;
+
   const validation = validateVmConfig(config);
   if (!validation.valid) {
     return new Response(
@@ -15,6 +13,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       { status: 400, headers: { 'Content-Type': 'application/json' } }
     );
   }
-  const createReq = configToCreateRequest(config);
-  return requireSmolVmAdmin({ locals }, (client) => client.createMachine(createReq));
+
+  return requireSmolVmAdmin({ locals }, async (client) => {
+    await client.deleteMachine(params.name);
+    const createReq = configToCreateRequest(config);
+    createReq.name = params.name;
+    return client.createMachine(createReq);
+  });
 };

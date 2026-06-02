@@ -191,8 +191,8 @@ test.describe('vm dashboard', () => {
     // Overview tab should be active by default
     await expect(page.getByRole('button', { name: 'Overview' })).toBeVisible();
 
-    // Placeholder tabs should be disabled
-    await expect(page.getByRole('button', { name: 'Config' })).toBeDisabled();
+    // Config tab is now enabled (implemented), other tabs still disabled
+    await expect(page.getByRole('button', { name: 'Config' })).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Logs' })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Terminal' })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Metrics' })).toBeDisabled();
