@@ -19,15 +19,23 @@ export default ts.config(
   },
   js.configs.recommended,
   ...ts.configs.recommended,
-  ...svelte.configs.recommended,
+  ...svelte.configs['flat/recommended'],
+  ...svelte.configs['flat/prettier'],
   prettier,
-  ...svelte.configs.prettier,
   {
     files: ['**/*.{js,ts,svelte}'],
     languageOptions: {
       globals: {
         ...globals.browser,
         ...globals.node
+      }
+    }
+  },
+  {
+    files: ['**/*.svelte'],
+    languageOptions: {
+      parserOptions: {
+        parser: ts.parser
       }
     }
   }
