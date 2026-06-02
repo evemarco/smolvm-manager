@@ -191,10 +191,9 @@ test.describe('vm dashboard', () => {
     // Overview tab should be active by default
     await expect(page.getByRole('button', { name: 'Overview' })).toBeVisible();
 
-    // Config tab is now enabled (implemented), other tabs still disabled
     await expect(page.getByRole('button', { name: 'Config' })).toBeEnabled();
-    await expect(page.getByRole('button', { name: 'Logs' })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Terminal' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Logs' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Terminal' })).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Metrics' })).toBeDisabled();
 
     // Back button should be visible

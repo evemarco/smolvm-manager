@@ -4,10 +4,16 @@ async function waitForAuthState(page: Page, timeoutMs = 15000) {
   const initialSetupHeading = page.getByRole('heading', { name: 'Initial Setup' });
   const signInHeading = page.getByRole('heading', { name: 'Sign In' });
   const dashboardHeading = page.getByRole('heading', { name: 'Virtual Machines' });
+  const createVmButton = page.getByRole('button', { name: 'Create new virtual machine' });
+  const searchMachinesInput = page.getByPlaceholder('Search machines...');
 
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
+    if ((await createVmButton.isVisible()) || (await searchMachinesInput.isVisible())) {
+      return { dashboardHeading, initialSetupHeading, signInHeading, state: 'dashboard' as const };
+    }
+
     if (await dashboardHeading.isVisible()) {
       return { dashboardHeading, initialSetupHeading, signInHeading, state: 'dashboard' as const };
     }
