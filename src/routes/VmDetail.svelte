@@ -11,6 +11,8 @@
     Pencil
   } from '@lucide/svelte';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
+  import VmLogs from './VmLogs.svelte';
+  import VmTerminal from './VmTerminal.svelte';
   import type { SmolVmMachine, TabId } from '$lib/types';
 
   let {
@@ -43,14 +45,12 @@
   const tabs: { id: TabId; label: string; disabled?: boolean }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'config', label: 'Config' },
-    { id: 'logs', label: 'Logs', disabled: true },
-    { id: 'terminal', label: 'Terminal', disabled: true },
+    { id: 'logs', label: 'Logs' },
+    { id: 'terminal', label: 'Terminal' },
     { id: 'metrics', label: 'Metrics', disabled: true }
   ];
 
   const placeholderMessages: Record<string, string> = {
-    logs: 'Real-time log streaming will be available in a future update.',
-    terminal: 'Browser terminal access will be available in a future update.',
     metrics: 'Live metrics and history charts will be available in a future update.'
   };
 </script>
@@ -190,6 +190,10 @@
           Edit Configuration
         </button>
       </div>
+    {:else if activeTab === 'logs'}
+      <VmLogs machineName={machine.name} />
+    {:else if activeTab === 'terminal'}
+      <VmTerminal machineName={machine.name} />
     {:else}
       <div class="flex flex-col items-center justify-center gap-3 py-12">
         <p class="text-sm text-slate-400">{placeholderMessages[activeTab] ?? 'Coming soon.'}</p>
