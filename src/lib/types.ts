@@ -14,3 +14,10 @@ export type ConfirmVariant = 'danger' | 'warning';
 export type TabId = 'overview' | 'config' | 'logs' | 'terminal' | 'metrics';
 
 export type VmStatus = 'running' | 'stopped' | 'starting' | 'stopping' | 'error' | 'unknown';
+
+export type ImagePickerSelection = {
+  namespace: string;
+  repository: string;
+  tag: string;
+  fullName: string;
+};

@@ -1,0 +1,368 @@
+export const DOCKER_HUB_ERROR_CODES = {
+  RATE_LIMITED: 'DOCKER_HUB_RATE_LIMITED',
+  REQUEST_FAILED: 'DOCKER_HUB_REQUEST_FAILED',
+  BAD_RESPONSE: 'DOCKER_HUB_BAD_RESPONSE',
+  UNREACHABLE: 'DOCKER_HUB_UNREACHABLE',
+  INVALID_REFERENCE: 'DOCKER_HUB_INVALID_REFERENCE'
+} as const;
+
+export type DockerHubErrorCode =
+  (typeof DOCKER_HUB_ERROR_CODES)[keyof typeof DOCKER_HUB_ERROR_CODES];
+
+export type DockerHubErrorJson = {
+  code: DockerHubErrorCode;
+  message: string;
+  status: number;
+  retryAfter?: number;
+  details?: unknown;
+};
+
+export class DockerHubError extends Error {
+  code: DockerHubErrorCode;
+  status: number;
+  retryAfter?: number;
+  details?: unknown;
+
+  constructor(
+    code: DockerHubErrorCode,
+    message: string,
+    status: number,
+    retryAfter?: number,
+    details?: unknown
+  ) {
+    super(message);
+    this.name = 'DockerHubError';
+    this.code = code;
+    this.status = status;
+    this.retryAfter = retryAfter;
+    this.details = details;
+  }
+
+  toJSON(): DockerHubErrorJson {
+    return normalizeDockerHubError(this);
+  }
+}
+
+export type DockerHubSearchResult = {
+  name: string;
+  namespace: string;
+  repository_type?: string;
+  is_official?: boolean;
+  description?: string;
+  star_count?: number;
+  pull_count?: number;
+};
+
+export type DockerHubSearchPage = {
+  results: DockerHubSearchResult[];
+  page: number;
+  pageSize: number;
+  totalCount?: number;
+  nextPage?: number;
+};
+
+export type DockerHubTagImage = {
+  architecture: string;
+  os?: string;
+  digest?: string;
+  size?: number;
+};
+
+export type DockerHubTag = {
+  name: string;
+  digest?: string;
+  images: DockerHubTagImage[];
+  lastUpdated?: string;
+  lastPushed?: string;
+  size?: number;
+};
+
+export type DockerHubTagPage = {
+  results: DockerHubTag[];
+  page: number;
+  pageSize: number;
+  totalCount?: number;
+  nextPage?: number;
+};
+
+export type DockerHubClientOptions = {
+  baseUrl?: string;
+  token?: string;
+  fetch?: typeof globalThis.fetch;
+  timeoutMs?: number;
+};
+
+const DEFAULT_BASE_URL = 'https://hub.docker.com';
+const MAX_PAGE_SIZE = 100;
+const DEFAULT_TIMEOUT_MS = 15000;
+
+function getConfiguredToken(): string | undefined {
+  return process.env.DOCKER_HUB_TOKEN?.trim() || undefined;
+}
+
+function cappedPageSize(size: number): number {
+  return Math.max(1, Math.min(size, MAX_PAGE_SIZE));
+}
+
+function buildSearchUrl(baseUrl: string, query: string, page: number, pageSize: number): string {
+  const url = new URL('/api/content/v1/products/search', baseUrl);
+  url.searchParams.set('q', query);
+  url.searchParams.set('page', String(page));
+  url.searchParams.set('page_size', String(cappedPageSize(pageSize)));
+  url.searchParams.set('type', 'image');
+  return url.toString();
+}
+
+function buildTagsUrl(
+  baseUrl: string,
+  namespace: string,
+  repo: string,
+  page: number,
+  pageSize: number
+): string {
+  const url = new URL(
+    `/v2/repositories/${encodeURIComponent(namespace)}/${encodeURIComponent(repo)}/tags`,
+    baseUrl
+  );
+  url.searchParams.set('page', String(page));
+  url.searchParams.set('page_size', String(cappedPageSize(pageSize)));
+  return url.toString();
+}
+
+function parseRetryAfter(headers: Headers): number | undefined {
+  const raw = headers.get('retry-after');
+  if (!raw) return undefined;
+  const parsed = parseInt(raw, 10);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  return undefined;
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  fetchImpl: typeof globalThis.fetch
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(url, { ...init, signal: controller.signal });
+    return response;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new DockerHubError(
+        DOCKER_HUB_ERROR_CODES.UNREACHABLE,
+        'Docker Hub request timed out.',
+        504
+      );
+    }
+    throw new DockerHubError(DOCKER_HUB_ERROR_CODES.UNREACHABLE, 'Docker Hub is unreachable.', 503);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function callDockerHub<T>(
+  url: string,
+  token: string | undefined,
+  timeoutMs: number,
+  fetchImpl: typeof globalThis.fetch,
+  coerce: (value: unknown) => T
+): Promise<T> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json'
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(url, { headers }, timeoutMs, fetchImpl);
+  } catch (error) {
+    if (error instanceof DockerHubError) throw error;
+    throw new DockerHubError(DOCKER_HUB_ERROR_CODES.UNREACHABLE, 'Docker Hub is unreachable.', 503);
+  }
+
+  if (response.status === 429) {
+    const retryAfter = parseRetryAfter(response.headers);
+    throw new DockerHubError(
+      DOCKER_HUB_ERROR_CODES.RATE_LIMITED,
+      'Docker Hub rate limit exceeded. Please try again later.',
+      429,
+      retryAfter
+    );
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    const text = await response.text().catch(() => '');
+    throw new DockerHubError(
+      DOCKER_HUB_ERROR_CODES.REQUEST_FAILED,
+      `Docker Hub request failed (${response.status}).`,
+      response.status || 502,
+      undefined,
+      text ? { body: text } : undefined
+    );
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new DockerHubError(
+      DOCKER_HUB_ERROR_CODES.BAD_RESPONSE,
+      'Docker Hub returned invalid JSON.',
+      502
+    );
+  }
+
+  return coerce(body);
+}
+
+function coerceSearchPage(body: unknown): DockerHubSearchPage {
+  if (!body || typeof body !== 'object') {
+    throw new DockerHubError(
+      DOCKER_HUB_ERROR_CODES.BAD_RESPONSE,
+      'Docker Hub search returned an invalid payload.',
+      502
+    );
+  }
+
+  const obj = body as Record<string, unknown>;
+  const summaries = Array.isArray(obj.summaries) ? obj.summaries : [];
+  const page = typeof obj.page === 'number' ? obj.page : 1;
+  const pageSize = typeof obj.page_size === 'number' ? obj.page_size : MAX_PAGE_SIZE;
+  const totalCount = typeof obj.total === 'number' ? obj.total : undefined;
+
+  const results: DockerHubSearchResult[] = summaries.map((item: unknown) => {
+    const s = (item ?? {}) as Record<string, unknown>;
+    const slug = typeof s.slug === 'string' ? s.slug : '';
+    const parts = slug.split('/');
+    const namespace = parts.length > 1 ? parts[0] : 'library';
+    const name = parts.length > 1 ? parts.slice(1).join('/') : slug;
+
+    const filterCategories = Array.isArray(s.filter_categories)
+      ? (s.filter_categories as Array<Record<string, unknown>>)
+      : [];
+    const isOfficial = filterCategories.some((c) => c.slug === 'docker_official_image');
+
+    return {
+      name,
+      namespace,
+      repository_type: typeof s.repository_type === 'string' ? s.repository_type : undefined,
+      is_official: isOfficial,
+      description: typeof s.short_description === 'string' ? s.short_description : undefined,
+      star_count: typeof s.star_count === 'number' ? s.star_count : undefined,
+      pull_count: typeof s.pull_count === 'number' ? s.pull_count : undefined
+    };
+  });
+
+  const nextPage = typeof obj.next === 'string' && obj.next ? page + 1 : undefined;
+
+  return { results, page, pageSize, totalCount, nextPage };
+}
+
+function coerceTagPage(body: unknown): DockerHubTagPage {
+  if (!body || typeof body !== 'object') {
+    throw new DockerHubError(
+      DOCKER_HUB_ERROR_CODES.BAD_RESPONSE,
+      'Docker Hub tags returned an invalid payload.',
+      502
+    );
+  }
+
+  const obj = body as Record<string, unknown>;
+  const rawResults = Array.isArray(obj.results) ? obj.results : [];
+  const page = typeof obj.page === 'number' ? obj.page : 1;
+  const pageSize = typeof obj.page_size === 'number' ? obj.page_size : MAX_PAGE_SIZE;
+  const totalCount = typeof obj.count === 'number' ? obj.count : undefined;
+
+  const results: DockerHubTag[] = rawResults.map((item: unknown) => {
+    const t = (item ?? {}) as Record<string, unknown>;
+    const name = typeof t.name === 'string' ? t.name : '';
+    const digest = typeof t.digest === 'string' ? t.digest : undefined;
+    const lastUpdated = typeof t.last_updated === 'string' ? t.last_updated : undefined;
+    const lastPushed = typeof t.tag_last_pushed === 'string' ? t.tag_last_pushed : undefined;
+
+    const rawImages = Array.isArray(t.images) ? t.images : [];
+    const images: DockerHubTagImage[] = rawImages.map((img: unknown) => {
+      const i = (img ?? {}) as Record<string, unknown>;
+      return {
+        architecture: typeof i.architecture === 'string' ? i.architecture : 'unknown',
+        os: typeof i.os === 'string' ? i.os : undefined,
+        digest: typeof i.digest === 'string' ? i.digest : undefined,
+        size: typeof i.size === 'number' ? i.size : undefined
+      };
+    });
+
+    // Derive overall size from first image if available
+    const size =
+      images.length > 0 && typeof images[0].size === 'number' ? images[0].size : undefined;
+
+    return { name, digest, images, lastUpdated, lastPushed, size };
+  });
+
+  const nextPage = typeof obj.next === 'string' && obj.next ? page + 1 : undefined;
+
+  return { results, page, pageSize, totalCount, nextPage };
+}
+
+export type DockerHubClient = {
+  searchRepositories(query: string, page?: number, pageSize?: number): Promise<DockerHubSearchPage>;
+  listTags(
+    namespace: string,
+    repo: string,
+    page?: number,
+    pageSize?: number
+  ): Promise<DockerHubTagPage>;
+};
+
+export function createDockerHubClient(options: DockerHubClientOptions = {}): DockerHubClient {
+  const baseUrl = options.baseUrl?.trim() || DEFAULT_BASE_URL;
+  const token = options.token ?? getConfiguredToken();
+  const fetchImpl = options.fetch ?? globalThis.fetch;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  return {
+    searchRepositories(query, page = 1, pageSize = 25) {
+      const url = buildSearchUrl(baseUrl, query, page, pageSize);
+      return callDockerHub(url, token, timeoutMs, fetchImpl, coerceSearchPage);
+    },
+
+    listTags(namespace, repo, page = 1, pageSize = 25) {
+      const url = buildTagsUrl(baseUrl, namespace, repo, page, pageSize);
+      return callDockerHub(url, token, timeoutMs, fetchImpl, coerceTagPage);
+    }
+  };
+}
+
+export function normalizeDockerHubError(error: unknown): DockerHubErrorJson {
+  if (error instanceof DockerHubError) {
+    const json: DockerHubErrorJson = {
+      code: error.code,
+      message: error.message,
+      status: error.status
+    };
+    if (error.retryAfter !== undefined) json.retryAfter = error.retryAfter;
+    if (error.details !== undefined) json.details = error.details;
+    return json;
+  }
+
+  if (error instanceof Error) {
+    return {
+      code: DOCKER_HUB_ERROR_CODES.REQUEST_FAILED,
+      message: error.message,
+      status: 502
+    };
+  }
+
+  return {
+    code: DOCKER_HUB_ERROR_CODES.REQUEST_FAILED,
+    message: 'Docker Hub request failed.',
+    status: 502
+  };
+}
+
+export function getDockerHubClient(): DockerHubClient {
+  return createDockerHubClient();
+}
