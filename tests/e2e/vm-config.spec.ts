@@ -1,25 +1,58 @@
 import { expect, test, type Page } from '@playwright/test';
 
+async function waitForAuthState(page: Page, timeoutMs = 15000) {
+  const initialSetupHeading = page.getByRole('heading', { name: 'Initial Setup' });
+  const signInHeading = page.getByRole('heading', { name: 'Sign In' });
+  const dashboardHeading = page.getByRole('heading', { name: 'Virtual Machines' });
+
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await dashboardHeading.isVisible()) {
+      return { dashboardHeading, initialSetupHeading, signInHeading, state: 'dashboard' as const };
+    }
+
+    if (await initialSetupHeading.isVisible()) {
+      return { dashboardHeading, initialSetupHeading, signInHeading, state: 'setup' as const };
+    }
+
+    if (await signInHeading.isVisible()) {
+      return { dashboardHeading, initialSetupHeading, signInHeading, state: 'signin' as const };
+    }
+
+    await page.waitForTimeout(100);
+  }
+
+  throw new Error('Timed out waiting for setup, sign-in, or dashboard state');
+}
+
 async function loginAsAdmin(page: Page) {
   await page.goto('/');
 
-  if (await page.getByRole('heading', { name: 'Initial Setup' }).isVisible({ timeout: 2000 })) {
+  const firstState = await waitForAuthState(page);
+
+  if (firstState.state === 'setup') {
     await page.getByLabel('Username').fill('admin');
     await page.getByRole('textbox', { name: 'Password', exact: true }).fill('securepass123');
     await page.getByLabel('Confirm Password').fill('securepass123');
     await page.getByRole('button', { name: 'Create Admin Account' }).click();
+
+    const nextState = await waitForAuthState(page);
+
+    if (nextState.state === 'signin') {
+      await page.getByLabel('Username').fill('admin');
+      await page.getByRole('textbox', { name: 'Password', exact: true }).fill('securepass123');
+      await page.getByRole('button', { name: 'Sign In' }).click();
+    }
   }
 
-  const signInButton = page.getByRole('button', { name: 'Sign In' });
-  if (await signInButton.isVisible({ timeout: 2000 })) {
+  if (firstState.state === 'signin') {
     await page.getByLabel('Username').fill('admin');
     await page.getByRole('textbox', { name: 'Password', exact: true }).fill('securepass123');
-    await signInButton.click();
+    await page.getByRole('button', { name: 'Sign In' }).click();
   }
 
-  await expect(page.getByRole('heading', { name: 'Virtual Machines' })).toBeVisible({
-    timeout: 10000
-  });
+  await expect(firstState.dashboardHeading).toBeVisible({ timeout: 15000 });
 }
 
 async function mockEmptyMachines(page: Page) {
