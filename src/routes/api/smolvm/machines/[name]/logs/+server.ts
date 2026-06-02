@@ -1,8 +1,5 @@
-import { getSmolVmClient } from '$lib/server/smolvm-client';
-import { placeholderStatus, unauthorizedSmolVmResponse } from '$lib/server/smolvm-api';
+import { createLogsSseResponse } from '$lib/server/smolvm-streaming';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = async ({ locals, params }) => {
-  if (!locals.admin) return unauthorizedSmolVmResponse();
-  return placeholderStatus(getSmolVmClient().getLogsPlaceholder(params.name));
-};
+export const GET: RequestHandler = async ({ locals, params, request, url }) =>
+  createLogsSseResponse({ locals, params, request, url });
