@@ -437,6 +437,9 @@
   <!-- TOML Import Modal -->
   {#if showTomlImport}
     <div
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
       onclick={(e) => {
         if (e.target === e.currentTarget) showTomlImport = false;
@@ -505,11 +508,13 @@
           <div class="grid gap-4 sm:grid-cols-2">
             <div>
               <label
+                for="vm-name"
                 class="mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400"
               >
                 Machine Name <span class="text-red-400">*</span>
               </label>
               <input
+                id="vm-name"
                 type="text"
                 bind:value={config.name}
                 placeholder="my-vm"
@@ -519,12 +524,14 @@
             </div>
             <div>
               <label
+                for="vm-image"
                 class="mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400"
               >
                 Image
               </label>
               <div class="flex gap-2">
                 <input
+                  id="vm-image"
                   type="text"
                   bind:value={config.image}
                   placeholder="alpine, nginx, etc."
@@ -541,11 +548,13 @@
             </div>
             <div>
               <label
+                for="vm-tag"
                 class="mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400"
               >
                 Tag
               </label>
               <input
+                id="vm-tag"
                 type="text"
                 bind:value={config.tag}
                 placeholder="latest"
@@ -554,11 +563,13 @@
             </div>
             <div>
               <label
+                for="vm-from"
                 class="mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400"
               >
                 From (.smolmachine)
               </label>
               <input
+                id="vm-from"
                 type="text"
                 bind:value={config.from}
                 placeholder="/path/to/file.smolmachine"
@@ -597,11 +608,13 @@
           <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <label
+                for="vm-cpus"
                 class="mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400"
               >
                 CPUs
               </label>
               <input
+                id="vm-cpus"
                 type="number"
                 bind:value={config.cpus}
                 min="1"
@@ -611,11 +624,13 @@
             </div>
             <div>
               <label
+                for="vm-memory"
                 class="mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400"
               >
                 Memory (MiB)
               </label>
               <input
+                id="vm-memory"
                 type="number"
                 bind:value={config.memory}
                 min="64"
@@ -624,11 +639,13 @@
             </div>
             <div>
               <label
+                for="vm-storage"
                 class="mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400"
               >
                 Storage (GiB)
               </label>
               <input
+                id="vm-storage"
                 type="number"
                 bind:value={config.storage}
                 min="1"
@@ -637,11 +654,13 @@
             </div>
             <div>
               <label
+                for="vm-overlay"
                 class="mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400"
               >
                 Overlay (GiB)
               </label>
               <input
+                id="vm-overlay"
                 type="number"
                 bind:value={config.overlay}
                 min="1"
@@ -678,11 +697,13 @@
           {#if config.gpu}
             <div class="mt-3">
               <label
+                for="vm-gpu-vram"
                 class="mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400"
               >
                 GPU VRAM (MiB)
               </label>
               <input
+                id="vm-gpu-vram"
                 type="number"
                 bind:value={config.gpuVram}
                 min="1"
@@ -711,9 +732,9 @@
         <div class="border-t border-white/5 px-5 py-4">
           <!-- Port mappings -->
           <div class="mb-4">
-            <label class="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-400">
+            <span class="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-400">
               Port Mappings
-            </label>
+            </span>
             {#if config.ports && config.ports.length > 0}
               <div class="flex flex-col gap-2 mb-2">
                 {#each config.ports as port, i (i)}
@@ -759,9 +780,9 @@
 
           <!-- Allow hosts -->
           <div class="mb-4">
-            <label class="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-400">
+            <span class="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-400">
               Allowed Hosts
-            </label>
+            </span>
             {#if config.allowHosts && config.allowHosts.length > 0}
               <div class="flex flex-wrap gap-2 mb-2">
                 {#each config.allowHosts as host, i (i)}
@@ -798,9 +819,9 @@
 
           <!-- Allow CIDRs -->
           <div>
-            <label class="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-400">
+            <span class="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-400">
               Allowed CIDRs
-            </label>
+            </span>
             {#if config.allowCidrs && config.allowCidrs.length > 0}
               <div class="flex flex-wrap gap-2 mb-2">
                 {#each config.allowCidrs as cidr, i (i)}
@@ -979,11 +1000,13 @@
           <div class="grid gap-4 sm:grid-cols-2">
             <div>
               <label
+                for="vm-workdir"
                 class="mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400"
               >
                 Working Directory
               </label>
               <input
+                id="vm-workdir"
                 type="text"
                 bind:value={config.workdir}
                 placeholder="/app"
@@ -992,11 +1015,13 @@
             </div>
             <div>
               <label
+                for="vm-entrypoint"
                 class="mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400"
               >
                 Entrypoint
               </label>
               <input
+                id="vm-entrypoint"
                 type="text"
                 bind:value={config.entrypoint}
                 placeholder="/bin/sh"
@@ -1005,11 +1030,13 @@
             </div>
             <div>
               <label
+                for="vm-cmd"
                 class="mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400"
               >
                 Command (cmd)
               </label>
               <input
+                id="vm-cmd"
                 type="text"
                 bind:value={config.cmd}
                 placeholder="-c echo hello"
@@ -1030,9 +1057,9 @@
 
           <!-- Init commands -->
           <div class="mt-4">
-            <label class="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-400">
+            <span class="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-400">
               Init Commands
-            </label>
+            </span>
             {#if config.init && config.init.length > 0}
               <div class="flex flex-col gap-2 mb-2">
                 {#each config.init as cmd, i (i)}

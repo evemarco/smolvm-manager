@@ -17,7 +17,9 @@ async function loginAsAdmin(page: Page) {
     await signInButton.click();
   }
 
-  await expect(page).toHaveURL('/', { timeout: 10000 });
+  await expect(page.getByRole('heading', { name: 'Virtual Machines' })).toBeVisible({
+    timeout: 10000
+  });
 }
 
 async function mockEmptyMachines(page: Page) {

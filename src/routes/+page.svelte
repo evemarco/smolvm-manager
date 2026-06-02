@@ -364,6 +364,9 @@
 
 {#if vmFormOpen}
   <div
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
     class="fixed inset-0 z-40 overflow-y-auto bg-black/60 backdrop-blur-sm"
     onclick={(e) => {
       if (e.target === e.currentTarget) vmFormOpen = false;
