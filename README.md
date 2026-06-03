@@ -44,8 +44,8 @@ The manager listens on `MANAGER_HOST:MANAGER_PORT` (default `0.0.0.0:3000` in de
 | `MANAGER_PORT`        | `3000` (dev) / `4173` (prod)        | Manager bind port                                           |
 | `PYLON_URL`           | `http://127.0.0.1:3001`             | Pylon HTTP endpoint                                         |
 | `PYLON_COMMAND`       | `pylon`                             | Pylon CLI command                                           |
-| `PYLON_APP_DB`        | `sqlite://./data/pylon-app.db`      | Pylon application database                                  |
-| `PYLON_SESSION_DB`    | `sqlite://./data/pylon-sessions.db` | Pylon session database                                      |
+| `PYLON_DB_PATH`       | `./data/pylon-app.db`               | Pylon application database                                  |
+| `PYLON_SESSION_DB`    | `./data/pylon-sessions.db`          | Pylon session database (plain path, no URI prefix)          |
 | `PYLON_PID_FILE`      | `./.pylon/pylon.pid`                | Pylon process lock file                                     |
 | `DOCKER_HUB_TOKEN`    | (empty)                             | Optional Docker Hub token for authenticated image search    |
 | `PYLON_STORE_MODE`    | `typed`                             | Pylon store transport: `typed` (default), `rest`, or `mock` |
@@ -70,7 +70,7 @@ sudo mkdir -p /var/lib/smolvm-manager/data
 sudo chown -R $USER:$USER /var/lib/smolvm-manager
 ```
 
-Update `PYLON_APP_DB` and `PYLON_SESSION_DB` to point under this directory.
+Update `PYLON_DB_PATH` and `PYLON_SESSION_DB` to point under this directory.
 
 ### 3. Systemd Service
 
