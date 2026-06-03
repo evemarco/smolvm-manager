@@ -1,6 +1,6 @@
 # Production Environment Example
 
-This file documents a complete production deployment layout for SmolVM Manager.
+This file documents a complete production deployment layout for [SmolVM Manager](https://github.com/evemarco/smolvm-manager).
 
 ## Directory Layout
 
@@ -44,7 +44,7 @@ This file documents a complete production deployment layout for SmolVM Manager.
 
 ## Pylon Runtime Dependencies
 
-Some Pylon builds require `libxmlsec1-openssl.so.1` at runtime. If the service fails to start with a library error, install the corresponding system package (e.g., `libxmlsec1-openssl` on Debian/Ubuntu, `xmlsec1-openssl` on Fedora).
+Some [Pylon](https://github.com/pylonsync/pylon) builds require `libxmlsec1-openssl.so.1` at runtime. If the service fails to start with a library error, install the corresponding system package (e.g., `libxmlsec1-openssl` on Debian/Ubuntu, `xmlsec1-openssl` on Fedora).
 
 ## Logs
 
@@ -54,7 +54,7 @@ View manager logs via journald:
 sudo journalctl -u smolvm-manager -f
 ```
 
-Pylon and SvelteKit stdout/stderr are both captured in the same journal stream.
+[Pylon](https://github.com/pylonsync/pylon) and SvelteKit stdout/stderr are both captured in the same journal stream.
 
 ## Backup
 

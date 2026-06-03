@@ -1,6 +1,6 @@
 # SmolVM Manager
 
-A web-based manager for [SmolVM](https://github.com/smol-ai/smolvm) virtual machines. Built with SvelteKit, Pylon, and Tailwind CSS.
+A web-based manager for [SmolVM](https://github.com/smol-machines/smolvm) virtual machines. Built with SvelteKit, [Pylon](https://github.com/pylonsync/pylon), and Tailwind CSS.
 
 ## Features
 
@@ -8,13 +8,13 @@ A web-based manager for [SmolVM](https://github.com/smol-ai/smolvm) virtual mach
 - TOML config import/export, copy, and recreate flows
 - Real-time log streaming and interactive terminal via WebSocket
 - Docker Hub image search and tag selection
-- Pylon-backed authentication with admin role
+- [Pylon](https://github.com/pylonsync/pylon)-backed authentication with admin role
 - PWA support for installable offline-capable UI
 
 ## Requirements
 
 - [Bun](https://bun.sh/) 1.3.14 or later
-- [SmolVM](https://github.com/smol-ai/smolvm) installed and running (`smolvm-serve` on `unix:///tmp/smolvm.sock`)
+- [SmolVM](https://github.com/smol-machines/smolvm) installed and running (`smolvm-serve` on `unix:///tmp/smolvm.sock`)
 - Optional: `libxmlsec1-openssl` runtime library if your Pylon package depends on it
 
 ## Quick Start
