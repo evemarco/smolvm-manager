@@ -46,12 +46,21 @@ function createMockSmolVmClient(
     openLogStream: async () => {
       throw new Error('not implemented');
     },
-    getExecPlaceholder: () => ({ available: false, feature: 'exec' as const, message: '' }),
-    getFilesPlaceholder: () => ({ available: false, feature: 'files' as const, message: '' }),
-    getLogsPlaceholder: () => ({ available: false, feature: 'logs' as const, message: '' }),
-    getImagesPlaceholder: () => ({ available: false, feature: 'images' as const, message: '' }),
-    getUpdatePlaceholder: () => ({ available: false, feature: 'update' as const, message: '' })
-  };
+  execMachine: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+  downloadMachineFile: async () => ({ path: '/tmp/file', content: '', encoding: 'utf-8' as const }),
+  listMachineImages: async () => ({ machine: 'vm', images: [] }),
+  pullMachineImage: async () => ({
+    machine: 'vm',
+    image: {
+      reference: 'alpine:latest',
+      digest: 'sha256:abc',
+      size: 0,
+      architecture: 'amd64',
+      os: 'linux',
+      layerCount: 0
+    }
+  })
+};
 }
 
 // ---------------------------------------------------------------------------

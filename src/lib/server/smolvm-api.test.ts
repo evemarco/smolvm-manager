@@ -3,7 +3,6 @@ import {
   smolVmJson,
   smolVmErrorResponse,
   unauthorizedSmolVmResponse,
-  placeholderStatus,
   requireSmolVmAdmin
 } from './smolvm-api';
 import { SMOLVM_ERROR_CODES, SmolVmError, createSmolVmClient } from './smolvm-client';
@@ -43,20 +42,6 @@ describe('smolvm-api facade', () => {
     const response = unauthorizedSmolVmResponse();
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: 'Unauthorized' });
-  });
-
-  test('placeholderStatus returns 501', async () => {
-    const response = placeholderStatus({
-      available: false,
-      feature: 'images',
-      message: 'Not implemented'
-    });
-    expect(response.status).toBe(501);
-    expect(await response.json()).toEqual({
-      available: false,
-      feature: 'images',
-      message: 'Not implemented'
-    });
   });
 
   test('requireSmolVmAdmin returns 401 when admin is missing', async () => {

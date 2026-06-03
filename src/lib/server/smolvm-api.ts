@@ -39,7 +39,3 @@ export async function requireSmolVmAdmin<T>(
     return smolVmErrorResponse(error);
   }
 }
-
-export function placeholderStatus(body: unknown): Response {
-  return smolVmJson(body, { status: 501 });
-}
