@@ -56,21 +56,21 @@
 
 <div class="flex flex-col gap-6">
   <!-- Back + header -->
-  <div class="flex items-center gap-4">
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
     <button
-      class="rounded-lg border border-white/10 bg-slate-800/80 p-2 text-slate-400 transition hover:bg-slate-700 hover:text-white"
+      class="self-start rounded-lg border border-white/10 bg-slate-800/80 p-2 text-slate-400 transition hover:bg-slate-700 hover:text-white"
       onclick={onBack}
       aria-label="Back to machine list"
     >
       <ArrowLeft size={18} />
     </button>
-    <div class="flex-1">
+    <div class="flex-1 min-w-0">
       <div class="flex items-center gap-3">
-        <h2 class="text-2xl font-semibold text-white">{machine.name}</h2>
+        <h2 class="truncate text-2xl font-semibold text-white">{machine.name}</h2>
         <StatusBadge status={machineStatus} />
       </div>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex flex-wrap items-center gap-2">
       {#if !isRunning}
         <button
           class="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
@@ -133,9 +133,11 @@
   </div>
 
   <!-- Tabs -->
-  <div class="flex gap-1 rounded-xl border border-white/10 bg-slate-900/60 p-1">
+  <div role="tablist" class="flex gap-1 rounded-xl border border-white/10 bg-slate-900/60 p-1">
     {#each tabs as tab (tab.id)}
       <button
+        role="tab"
+        aria-selected={activeTab === tab.id}
         class="rounded-lg px-4 py-2 text-sm font-medium transition {activeTab === tab.id
           ? 'bg-cyan-500/20 text-cyan-300'
           : tab.disabled
@@ -150,7 +152,7 @@
   </div>
 
   <!-- Tab content -->
-  <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-6">
+  <div role="tabpanel" class="rounded-2xl border border-white/10 bg-slate-900/60 p-4 sm:p-6">
     {#if activeTab === 'overview'}
       <div class="flex flex-col gap-6">
         <div class="flex items-center gap-4">

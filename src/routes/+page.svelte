@@ -423,12 +423,16 @@
   </div>
 {/if}
 
-<main class="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-6 py-8 lg:px-10">
+<div
+  class="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:px-10"
+>
   <!-- Header -->
   <header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
     <div>
       <p class="text-sm uppercase tracking-[0.3em] text-cyan-300/80">Dashboard</p>
-      <h1 class="mt-1 text-3xl font-semibold tracking-tight text-white">Virtual Machines</h1>
+      <h1 class="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+        Virtual Machines
+      </h1>
     </div>
     <div class="flex items-center gap-3">
       <button
@@ -453,7 +457,7 @@
 
   <!-- Capacity summary -->
   {#if capacity}
-    <div class="grid grid-cols-3 gap-3 sm:gap-4">
+    <div class="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3 sm:gap-4">
       <div
         class="flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2.5"
       >
@@ -610,4 +614,4 @@
       {actionLoading}
     />
   {/if}
-</main>
+</div>
