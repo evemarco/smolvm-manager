@@ -17,6 +17,114 @@ beforeEach(() => {
   resetMockManagerStore();
 });
 
+type FetchCall = {
+  url: URL;
+  method: string;
+  body: string | undefined;
+};
+
+type FetchRoute = {
+  method: string;
+  match: (url: URL, body: string | undefined) => boolean;
+  response: Response | ((call: FetchCall) => Response | Promise<Response>);
+};
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function createSequentialFetchStub(routes: FetchRoute[]) {
+  const calls: FetchCall[] = [];
+  let index = 0;
+
+  const fetchStub = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(
+      typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString()
+    );
+    const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+    const body = typeof init?.body === 'string' ? init.body : undefined;
+    const call = { url, method, body };
+    calls.push(call);
+
+    const route = routes[index++];
+    if (!route) {
+      throw new Error(`Unexpected fetch: ${method} ${url.pathname}${url.search}`);
+    }
+
+    expect(route.method).toBe(method);
+    expect(route.match(url, body)).toBe(true);
+
+    return typeof route.response === 'function' ? await route.response(call) : route.response;
+  };
+
+  return { fetchStub, calls };
+}
+
+async function withPatchedFetch<T>(fetchStub: any, fn: () => Promise<T>): Promise<T> {
+  const originalFetch = globalThis.fetch;
+  const originalPylonUrl = process.env.PYLON_URL;
+  process.env.PYLON_URL = 'http://pylon.test';
+  globalThis.fetch = fetchStub as typeof fetch;
+
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalPylonUrl === undefined) {
+      delete process.env.PYLON_URL;
+    } else {
+      process.env.PYLON_URL = originalPylonUrl;
+    }
+  }
+}
+
+async function withFixedDate<T>(iso: string, fn: () => Promise<T>): Promise<T> {
+  const RealDate = Date;
+
+  class FixedDate extends RealDate {
+    constructor(...args: any[]) {
+      if (args.length === 0) {
+        super(iso);
+        return;
+      }
+
+      super(args[0]);
+    }
+
+    static now(): number {
+      return RealDate.parse(iso);
+    }
+
+    static parse = RealDate.parse;
+    static UTC = RealDate.UTC;
+  }
+
+  (globalThis as { Date: typeof Date }).Date = FixedDate as unknown as typeof Date;
+
+  try {
+    return await fn();
+  } finally {
+    (globalThis as { Date: typeof Date }).Date = RealDate;
+  }
+}
+
+function expectIsoTimestamp(value: string): void {
+  expect(new Date(value).toISOString()).toBe(value);
+}
+
+function parseJsonBody(body: string | undefined): Record<string, unknown> {
+  expect(body).toBeDefined();
+  return JSON.parse(body!);
+}
+
+function withoutId<T extends { id: string }>(value: T): Omit<T, 'id'> {
+  const { id: _id, ...rest } = value;
+  return rest;
+}
+
 // ---------------------------------------------------------------------------
 // Manifest schema tests
 // ---------------------------------------------------------------------------
@@ -111,7 +219,6 @@ describe('manifest', () => {
     expect(fieldNames).toContain('ipAddress');
     expect(fieldNames).toContain('createdAt');
   });
-});
 
 // ---------------------------------------------------------------------------
 // Mock store: ManagerSetting
@@ -147,7 +254,6 @@ describe('mock ManagerSetting', () => {
     const list = await client.listSettings();
     expect(list).toHaveLength(2);
   });
-});
 
 // ---------------------------------------------------------------------------
 // Mock store: SavedVmConfig
@@ -216,6 +322,7 @@ describe('mock SavedVmConfig', () => {
     await client.deleteSavedVmConfig(created.id);
     expect(getMockSavedVmConfigs()).toHaveLength(0);
   });
+});
 });
 
 // ---------------------------------------------------------------------------
@@ -432,27 +539,857 @@ describe('mock UiPreference', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Real client error handling
-// ---------------------------------------------------------------------------
+describe('error codes', () => {
+  test('exposes validation error code on ManagerStoreError', () => {
+    const error = new ManagerStoreError(STORE_ERROR_CODES.VALIDATION, 'Invalid input.', 400, {
+      field: 'key'
+    });
 
-describe('real client error handling', () => {
-  test('Pylon unavailable throws structured store error', async () => {
-    const originalEnv = process.env.PYLON_URL;
-    process.env.PYLON_URL = 'http://127.0.0.1:59999';
+    expect(error.code).toBe(STORE_ERROR_CODES.VALIDATION);
+    expect(error.status).toBe(400);
+    expect(error.message).toBe('Invalid input.');
+    expect(error.details).toEqual({ field: 'key' });
+  });
 
-    const client = createManagerStoreClient();
+  test('mock updateSavedVmConfig missing throws not-found', async () => {
+    const client = createMockManagerStoreClient();
+
     try {
-      await client.listSettings();
-      throw new Error('Expected listSettings to throw');
+      await client.updateSavedVmConfig('missing', { name: 'new' });
+      throw new Error('Expected updateSavedVmConfig to throw');
     } catch (error) {
       expect(error).toBeInstanceOf(ManagerStoreError);
       const storeError = error as ManagerStoreError;
-      expect(storeError.code).toBe(STORE_ERROR_CODES.UNAVAILABLE);
-      expect(storeError.status).toBe(503);
-      expect(storeError.message).toContain('unreachable');
-    } finally {
-      process.env.PYLON_URL = originalEnv;
+      expect(storeError.code).toBe(STORE_ERROR_CODES.NOT_FOUND);
+      expect(storeError.status).toBe(404);
     }
   });
+});
+
+describe('real client contract', () => {
+  test('ManagerSetting methods preserve timestamps and request shapes', async () => {
+    const iso = '2026-06-03T12:00:00.000Z';
+    const postedBodies: string[] = [];
+    const { fetchStub, calls } = createSequentialFetchStub([
+      {
+        method: 'GET',
+        match: (url) =>
+          url.pathname === '/api/entities/ManagerSetting' &&
+          url.searchParams.get('filter') === 'key eq "theme"',
+        response: jsonResponse({ data: [] })
+      },
+      {
+        method: 'GET',
+        match: (url) =>
+          url.pathname === '/api/entities/ManagerSetting' &&
+          url.searchParams.get('filter') === 'key eq "theme"',
+        response: jsonResponse({ data: [] })
+      },
+      {
+        method: 'POST',
+        match: (url) => url.pathname === '/api/entities/ManagerSetting',
+        response: ({ body }) => {
+          postedBodies.push(body ?? '');
+          return jsonResponse({ id: 'setting-1', key: 'theme', valueJson: '"dark"', updatedAt: iso });
+        }
+      },
+      {
+        method: 'GET',
+        match: (url) => url.pathname === '/api/entities/ManagerSetting',
+        response: jsonResponse({
+          data: [{ id: 'setting-1', key: 'theme', valueJson: '"dark"', updatedAt: iso }]
+        })
+      }
+    ]);
+
+    await withFixedDate(iso, async () =>
+      withPatchedFetch(fetchStub, async () => {
+        const client = createManagerStoreClient();
+
+        await expect(client.getSetting('theme')).resolves.toBeNull();
+
+        const created = await client.setSetting('theme', '"dark"');
+        expect(created.updatedAt).toBe(iso);
+        expectIsoTimestamp(created.updatedAt);
+
+        const list = await client.listSettings();
+        expect(list).toEqual([created]);
+      })
+    );
+
+    expect(calls).toHaveLength(4);
+    expect(JSON.parse(postedBodies[0] ?? '{}')).toMatchObject({
+      key: 'theme',
+      valueJson: '"dark"',
+      updatedAt: iso
+    });
+  });
+
+  test('ManagerSetting request failures and unavailable errors are structured', async () => {
+    const { fetchStub } = createSequentialFetchStub([
+      {
+        method: 'GET',
+        match: (url) => url.pathname === '/api/entities/ManagerSetting',
+        response: new Response('boom', { status: 500 })
+      }
+    ]);
+
+    await withPatchedFetch(fetchStub, async () => {
+      const client = createManagerStoreClient();
+
+      await expect(client.listSettings()).rejects.toMatchObject({
+        code: STORE_ERROR_CODES.REQUEST_FAILED,
+        status: 500
+      });
+    });
+
+    const throwingFetch = async () => {
+      throw new TypeError('network down');
+    };
+
+    await withPatchedFetch(throwingFetch as any, async () => {
+      const client = createManagerStoreClient();
+      await expect(client.listSettings()).rejects.toMatchObject({
+        code: STORE_ERROR_CODES.UNAVAILABLE,
+        status: 503
+      });
+    });
+  });
+
+  test('SavedVmConfig methods preserve timestamps and not-found behavior', async () => {
+    const iso = '2026-06-03T12:01:00.000Z';
+    const { fetchStub, calls } = createSequentialFetchStub([
+      {
+        method: 'POST',
+        match: (url, body) => {
+          if (url.pathname !== '/api/entities/SavedVmConfig') return false;
+          const payload = parseJsonBody(body);
+          expect(payload).toMatchObject({
+            name: 'web-server',
+            machineName: 'vm-web-01',
+            configJson: '{"cpu":2}',
+            toml: '[machine]\ncpu = 2',
+            createdAt: iso,
+            updatedAt: iso
+          });
+          return true;
+        },
+        response: jsonResponse({
+          id: 'cfg-1',
+          name: 'web-server',
+          machineName: 'vm-web-01',
+          configJson: '{"cpu":2}',
+          toml: '[machine]\ncpu = 2',
+          createdAt: iso,
+          updatedAt: iso
+        })
+      },
+      {
+        method: 'GET',
+        match: (url) => url.pathname === '/api/entities/SavedVmConfig/cfg-1',
+        response: jsonResponse({
+          id: 'cfg-1',
+          name: 'web-server',
+          machineName: 'vm-web-01',
+          configJson: '{"cpu":2}',
+          toml: '[machine]\ncpu = 2',
+          createdAt: iso,
+          updatedAt: iso
+        })
+      },
+      {
+        method: 'GET',
+        match: (url) => url.pathname === '/api/entities/SavedVmConfig',
+        response: jsonResponse({
+          data: [
+            {
+              id: 'cfg-1',
+              name: 'web-server',
+              machineName: 'vm-web-01',
+              configJson: '{"cpu":2}',
+              toml: '[machine]\ncpu = 2',
+              createdAt: iso,
+              updatedAt: iso
+            }
+          ]
+        })
+      },
+      {
+        method: 'PATCH',
+        match: (url, body) => {
+          if (url.pathname !== '/api/entities/SavedVmConfig/cfg-1') return false;
+          const payload = parseJsonBody(body);
+          expect(payload).toMatchObject({ name: 'web-server-2', updatedAt: iso });
+          return true;
+        },
+        response: jsonResponse({
+          id: 'cfg-1',
+          name: 'web-server-2',
+          machineName: 'vm-web-01',
+          configJson: '{"cpu":2}',
+          toml: '[machine]\ncpu = 2',
+          createdAt: iso,
+          updatedAt: iso
+        })
+      },
+      {
+        method: 'DELETE',
+        match: (url) => url.pathname === '/api/entities/SavedVmConfig/cfg-1',
+        response: new Response(null, { status: 204 })
+      },
+      {
+        method: 'GET',
+        match: (url) => url.pathname === '/api/entities/SavedVmConfig/missing',
+        response: new Response('missing', { status: 404 })
+      }
+    ]);
+
+    await withFixedDate(iso, async () =>
+      withPatchedFetch(fetchStub, async () => {
+        const client = createManagerStoreClient();
+
+        const created = await client.createSavedVmConfig({
+          name: 'web-server',
+          machineName: 'vm-web-01',
+          configJson: '{"cpu":2}',
+          toml: '[machine]\ncpu = 2'
+        });
+        expect(created.createdAt).toBe(iso);
+        expectIsoTimestamp(created.createdAt);
+
+        const found = await client.getSavedVmConfig('cfg-1');
+        expect(found).not.toBeNull();
+        expect(found!.id).toBe('cfg-1');
+
+        const list = await client.listSavedVmConfigs();
+        expect(list).toEqual([created]);
+
+        const updated = await client.updateSavedVmConfig('cfg-1', { name: 'web-server-2' });
+        expect(updated.name).toBe('web-server-2');
+        expect(updated.updatedAt).toBe(iso);
+
+        await client.deleteSavedVmConfig('cfg-1');
+
+        await expect(client.getSavedVmConfig('missing')).resolves.toBeNull();
+      })
+    );
+
+    expect(calls).toHaveLength(6);
+  });
+
+  test('SavedVmConfig request failures are surfaced as request errors', async () => {
+    const { fetchStub } = createSequentialFetchStub([
+      {
+        method: 'PATCH',
+        match: (url) => url.pathname === '/api/entities/SavedVmConfig/cfg-1',
+        response: new Response('nope', { status: 500 })
+      }
+    ]);
+
+    await withPatchedFetch(fetchStub, async () => {
+      const client = createManagerStoreClient();
+      await expect(client.updateSavedVmConfig('cfg-1', { name: 'nope' })).rejects.toMatchObject({
+        code: STORE_ERROR_CODES.REQUEST_FAILED,
+        status: 500
+      });
+    });
+  });
+
+  test('TomlSnapshot methods preserve timestamp and machineName filtering', async () => {
+    const iso = '2026-06-03T12:02:00.000Z';
+    const { fetchStub, calls } = createSequentialFetchStub([
+      {
+        method: 'POST',
+        match: (url, body) => {
+          if (url.pathname !== '/api/entities/TomlSnapshot') return false;
+          const payload = parseJsonBody(body);
+          expect(payload).toMatchObject({ machineName: 'vm-1', toml: '[machine]\ncpu = 1', reason: 'initial', createdAt: iso });
+          return true;
+        },
+        response: jsonResponse({ id: 'snap-1', machineName: 'vm-1', toml: '[machine]\ncpu = 1', reason: 'initial', createdAt: iso })
+      },
+      {
+        method: 'GET',
+        match: (url) =>
+          url.pathname === '/api/entities/TomlSnapshot' &&
+          url.searchParams.get('filter') === 'machineName eq "vm-1"',
+        response: jsonResponse({
+          data: [
+            { id: 'snap-1', machineName: 'vm-1', toml: '[machine]\ncpu = 1', reason: 'initial', createdAt: iso }
+          ]
+        })
+      }
+    ]);
+
+    await withFixedDate(iso, async () =>
+      withPatchedFetch(fetchStub, async () => {
+        const client = createManagerStoreClient();
+        const created = await client.createTomlSnapshot({
+          machineName: 'vm-1',
+          toml: '[machine]\ncpu = 1',
+          reason: 'initial'
+        });
+        expect(created.createdAt).toBe(iso);
+        const list = await client.listTomlSnapshots('vm-1');
+        expect(list).toEqual([created]);
+      })
+    );
+
+    expect(calls).toHaveLength(2);
+  });
+
+  test('MetricsSample methods preserve sampledAt and limit handling', async () => {
+    const iso = '2026-06-03T12:03:00.000Z';
+    const samples = [
+      { id: 'sample-1', machineName: 'vm-1', cpu: 1, memoryMb: 10, diskGb: 20, networkRxBytes: 30, networkTxBytes: 40, sampledAt: '2026-06-03T12:00:00.000Z' },
+      { id: 'sample-2', machineName: 'vm-1', cpu: 2, memoryMb: 11, diskGb: 21, networkRxBytes: 31, networkTxBytes: 41, sampledAt: '2026-06-03T12:01:00.000Z' },
+      { id: 'sample-3', machineName: 'vm-1', cpu: 3, memoryMb: 12, diskGb: 22, networkRxBytes: 32, networkTxBytes: 42, sampledAt: '2026-06-03T12:02:00.000Z' }
+    ];
+    const { fetchStub, calls } = createSequentialFetchStub([
+      {
+        method: 'POST',
+        match: (url, body) => {
+          if (url.pathname !== '/api/entities/MetricsSample') return false;
+          const payload = parseJsonBody(body);
+          expect(payload).toMatchObject({ machineName: 'vm-1', cpu: 1, sampledAt: iso });
+          return true;
+        },
+        response: jsonResponse({
+          id: 'sample-4',
+          machineName: 'vm-1',
+          cpu: 1,
+          memoryMb: 10,
+          diskGb: 20,
+          networkRxBytes: 30,
+          networkTxBytes: 40,
+          sampledAt: iso
+        })
+      },
+      {
+        method: 'GET',
+        match: (url) =>
+          url.pathname === '/api/entities/MetricsSample' &&
+          url.searchParams.get('filter') === 'machineName eq "vm-1"' &&
+          url.searchParams.get('limit') === '2',
+        response: jsonResponse({ data: samples })
+      },
+      {
+        method: 'GET',
+        match: (url) => url.pathname === '/api/entities/MetricsSample',
+        response: jsonResponse({ data: samples })
+      },
+      {
+        method: 'DELETE',
+        match: (url) => url.pathname === '/api/entities/MetricsSample/sample-1',
+        response: new Response(null, { status: 204 })
+      }
+    ]);
+
+    await withFixedDate(iso, async () =>
+      withPatchedFetch(fetchStub, async () => {
+        const client = createManagerStoreClient();
+        const inserted = await client.insertMetricsSample({
+          machineName: 'vm-1',
+          cpu: 1,
+          memoryMb: 10,
+          diskGb: 20,
+          networkRxBytes: 30,
+          networkTxBytes: 40
+        });
+        expect(inserted.sampledAt).toBe(iso);
+
+        const list = await client.listMetricsSamples('vm-1', 2);
+        expect(list).toHaveLength(3);
+
+        const pruned = await client.pruneMetricsSamples('2026-06-03T12:00:30.000Z', 2);
+        expect(pruned).toBe(1);
+      })
+    );
+
+    expect(calls).toHaveLength(4);
+  });
+
+  test('AuditEvent methods preserve createdAt and limit handling', async () => {
+    const iso = '2026-06-03T12:04:00.000Z';
+    const events = [
+      { id: 'audit-1', eventType: 'event-1', actorUserId: 'u1', action: 'do-1', details: 'd1', ipAddress: '127.0.0.1', createdAt: '2026-06-03T12:01:00.000Z' },
+      { id: 'audit-2', eventType: 'event-2', actorUserId: 'u1', action: 'do-2', details: 'd2', ipAddress: null, createdAt: '2026-06-03T12:02:00.000Z' },
+      { id: 'audit-3', eventType: 'event-3', actorUserId: null, action: null, details: null, ipAddress: null, createdAt: '2026-06-03T12:03:00.000Z' }
+    ];
+    const { fetchStub, calls } = createSequentialFetchStub([
+      {
+        method: 'POST',
+        match: (url, body) => {
+          if (url.pathname !== '/api/entities/AuditEvent') return false;
+          const payload = parseJsonBody(body);
+          expect(payload).toMatchObject({ eventType: 'login', createdAt: iso });
+          return true;
+        },
+        response: jsonResponse({
+          id: 'audit-4',
+          eventType: 'login',
+          actorUserId: 'u1',
+          action: 'sign_in',
+          details: 'Admin login',
+          ipAddress: '127.0.0.1',
+          createdAt: iso
+        })
+      },
+      {
+        method: 'GET',
+        match: (url) => url.pathname === '/api/entities/AuditEvent' && url.searchParams.get('limit') === '2',
+        response: jsonResponse({ data: events })
+      },
+      {
+        method: 'GET',
+        match: (url) => url.pathname === '/api/entities/AuditEvent',
+        response: jsonResponse({ data: events })
+      },
+      {
+        method: 'DELETE',
+        match: (url) => url.pathname === '/api/entities/AuditEvent/audit-1',
+        response: new Response(null, { status: 204 })
+      }
+    ]);
+
+    await withFixedDate(iso, async () =>
+      withPatchedFetch(fetchStub, async () => {
+        const client = createManagerStoreClient();
+        const inserted = await client.insertAuditEvent({
+          eventType: 'login',
+          actorUserId: 'u1',
+          action: 'sign_in',
+          details: 'Admin login',
+          ipAddress: '127.0.0.1'
+        });
+        expect(inserted.createdAt).toBe(iso);
+
+        const list = await client.listAuditEvents(2);
+        expect(list).toHaveLength(3);
+
+        const pruned = await client.pruneAuditEvents('2026-06-03T12:01:30.000Z', 2);
+        expect(pruned).toBe(1);
+      })
+    );
+
+    expect(calls).toHaveLength(4);
+  });
+
+  test('UiPreference methods preserve timestamps and reuse existing entries', async () => {
+    const iso = '2026-06-03T12:05:00.000Z';
+    const postedBodies: string[] = [];
+    const { fetchStub, calls } = createSequentialFetchStub([
+      {
+        method: 'GET',
+        match: (url) =>
+          url.pathname === '/api/entities/UiPreference' &&
+          url.searchParams.get('filter') === 'userId eq "user-1" and key eq "theme"',
+        response: jsonResponse({ data: [] })
+      },
+      {
+        method: 'GET',
+        match: (url) =>
+          url.pathname === '/api/entities/UiPreference' &&
+          url.searchParams.get('filter') === 'userId eq "user-1" and key eq "theme"',
+        response: jsonResponse({ data: [] })
+      },
+      {
+        method: 'POST',
+        match: (url) => url.pathname === '/api/entities/UiPreference',
+        response: ({ body }) => {
+          postedBodies.push(body ?? '');
+          return jsonResponse({
+            id: 'pref-1',
+            userId: 'user-1',
+            key: 'theme',
+            valueJson: '"dark"',
+            updatedAt: iso
+          });
+        }
+      },
+      {
+        method: 'GET',
+        match: (url) =>
+          url.pathname === '/api/entities/UiPreference' &&
+          url.searchParams.get('filter') === 'userId eq "user-1"',
+        response: jsonResponse({
+          data: [
+            {
+              id: 'pref-1',
+              userId: 'user-1',
+              key: 'theme',
+              valueJson: '"dark"',
+              updatedAt: iso
+            }
+          ]
+        })
+      },
+      {
+        method: 'GET',
+        match: (url) =>
+          url.pathname === '/api/entities/UiPreference' &&
+          url.searchParams.get('filter') === 'userId eq "user-1" and key eq "theme"',
+        response: jsonResponse({
+          data: [
+            {
+              id: 'pref-1',
+              userId: 'user-1',
+              key: 'theme',
+              valueJson: '"dark"',
+              updatedAt: iso
+            }
+          ]
+        })
+      },
+      {
+        method: 'PATCH',
+        match: (url) => url.pathname === '/api/entities/UiPreference/pref-1',
+        response: ({ body }) => {
+          postedBodies.push(body ?? '');
+          return jsonResponse({
+            id: 'pref-1',
+            userId: 'user-1',
+            key: 'theme',
+            valueJson: '"light"',
+            updatedAt: iso
+          });
+        }
+      },
+      {
+        method: 'GET',
+        match: (url) =>
+          url.pathname === '/api/entities/UiPreference' &&
+          url.searchParams.get('filter') === 'userId eq "user-1"',
+        response: jsonResponse({
+          data: [
+            {
+              id: 'pref-1',
+              userId: 'user-1',
+              key: 'theme',
+              valueJson: '"light"',
+              updatedAt: iso
+            }
+          ]
+        })
+      }
+    ]);
+
+    await withFixedDate(iso, async () =>
+      withPatchedFetch(fetchStub, async () => {
+        const client = createManagerStoreClient();
+
+        await expect(client.getUiPreference('user-1', 'theme')).resolves.toBeNull();
+
+        const created = await client.setUiPreference('user-1', 'theme', '"dark"');
+        expect(created.updatedAt).toBe(iso);
+
+        const list = await client.listUiPreferences('user-1');
+        expect(list).toEqual([created]);
+
+        const updated = await client.setUiPreference('user-1', 'theme', '"light"');
+        expect(updated.valueJson).toBe('"light"');
+
+        const refreshed = await client.listUiPreferences('user-1');
+        expect(refreshed[0].valueJson).toBe('"light"');
+      })
+    );
+
+    expect(calls).toHaveLength(7);
+    expect(JSON.parse(postedBodies[0] ?? '{}')).toMatchObject({
+      userId: 'user-1',
+      key: 'theme',
+      valueJson: '"dark"',
+      updatedAt: iso
+    });
+    expect(JSON.parse(postedBodies[1] ?? '{}')).toMatchObject({
+      valueJson: '"light"',
+      updatedAt: iso
+    });
+  });
+});
+
+describe('mock parity', () => {
+  test('ManagerSetting parity matches real client response shapes', async () => {
+    const iso = '2026-06-03T13:00:00.000Z';
+    await withFixedDate(iso, async () => {
+      resetMockManagerStore();
+      const mockClient = createMockManagerStoreClient();
+      const mockCreated = await mockClient.setSetting('theme', '"dark"');
+      const mockList = await mockClient.listSettings();
+
+      const { fetchStub } = createSequentialFetchStub([
+        {
+          method: 'GET',
+          match: (url) =>
+            url.pathname === '/api/entities/ManagerSetting' &&
+            url.searchParams.get('filter') === 'key eq "theme"',
+          response: jsonResponse({ data: [] })
+        },
+        {
+          method: 'POST',
+          match: (url, body) => {
+            if (url.pathname !== '/api/entities/ManagerSetting') return false;
+            expect(parseJsonBody(body)).toMatchObject({ key: 'theme', valueJson: '"dark"', updatedAt: iso });
+            return true;
+          },
+          response: jsonResponse({ id: 'setting-1', key: 'theme', valueJson: '"dark"', updatedAt: iso })
+        },
+        {
+          method: 'GET',
+          match: (url) => url.pathname === '/api/entities/ManagerSetting',
+          response: jsonResponse({ data: [{ id: 'setting-1', key: 'theme', valueJson: '"dark"', updatedAt: iso }] })
+        }
+      ]);
+
+      await withPatchedFetch(fetchStub, async () => {
+        const realClient = createManagerStoreClient();
+        const realCreated = await realClient.setSetting('theme', '"dark"');
+        const realList = await realClient.listSettings();
+
+        expect(withoutId(realCreated)).toEqual(withoutId(mockCreated));
+        expect(realList.map(withoutId)).toEqual(mockList.map(withoutId));
+      });
+    });
+  });
+
+  test('SavedVmConfig parity matches real client response shapes', async () => {
+    const iso = '2026-06-03T13:01:00.000Z';
+    await withFixedDate(iso, async () => {
+      resetMockManagerStore();
+      const mockClient = createMockManagerStoreClient();
+      const mockCreated = await mockClient.createSavedVmConfig({
+        name: 'web-server',
+        machineName: 'vm-web-01',
+        configJson: '{"cpu":2}',
+        toml: '[machine]\ncpu = 2'
+      });
+
+      const { fetchStub } = createSequentialFetchStub([
+        {
+          method: 'POST',
+          match: (url, body) => {
+            if (url.pathname !== '/api/entities/SavedVmConfig') return false;
+            expect(parseJsonBody(body)).toMatchObject({
+              name: 'web-server',
+              machineName: 'vm-web-01',
+              configJson: '{"cpu":2}',
+              toml: '[machine]\ncpu = 2',
+              createdAt: iso,
+              updatedAt: iso
+            });
+            return true;
+          },
+          response: jsonResponse({
+            id: 'cfg-1',
+            name: 'web-server',
+            machineName: 'vm-web-01',
+            configJson: '{"cpu":2}',
+            toml: '[machine]\ncpu = 2',
+            createdAt: iso,
+            updatedAt: iso
+          })
+        }
+      ]);
+
+      await withPatchedFetch(fetchStub, async () => {
+        const realClient = createManagerStoreClient();
+        const realCreated = await realClient.createSavedVmConfig({
+          name: 'web-server',
+          machineName: 'vm-web-01',
+          configJson: '{"cpu":2}',
+          toml: '[machine]\ncpu = 2'
+        });
+        expect(withoutId(realCreated)).toEqual(withoutId(mockCreated));
+      });
+    });
+  });
+
+  test('TomlSnapshot parity matches real client response shapes', async () => {
+    const iso = '2026-06-03T13:02:00.000Z';
+    await withFixedDate(iso, async () => {
+      resetMockManagerStore();
+      const mockClient = createMockManagerStoreClient();
+      const mockCreated = await mockClient.createTomlSnapshot({
+        machineName: 'vm-1',
+        toml: '[machine]\ncpu = 1',
+        reason: 'initial'
+      });
+
+      const { fetchStub } = createSequentialFetchStub([
+        {
+          method: 'POST',
+          match: (url, body) => {
+            if (url.pathname !== '/api/entities/TomlSnapshot') return false;
+            expect(parseJsonBody(body)).toMatchObject({
+              machineName: 'vm-1',
+              toml: '[machine]\ncpu = 1',
+              reason: 'initial',
+              createdAt: iso
+            });
+            return true;
+          },
+          response: jsonResponse({
+            id: 'snap-1',
+            machineName: 'vm-1',
+            toml: '[machine]\ncpu = 1',
+            reason: 'initial',
+            createdAt: iso
+          })
+        }
+      ]);
+
+      await withPatchedFetch(fetchStub, async () => {
+        const realClient = createManagerStoreClient();
+        const realCreated = await realClient.createTomlSnapshot({
+          machineName: 'vm-1',
+          toml: '[machine]\ncpu = 1',
+          reason: 'initial'
+        });
+        expect(withoutId(realCreated)).toEqual(withoutId(mockCreated));
+      });
+    });
+  });
+
+  test('MetricsSample parity matches real client response shapes', async () => {
+    const iso = '2026-06-03T13:03:00.000Z';
+    await withFixedDate(iso, async () => {
+      resetMockManagerStore();
+      const mockClient = createMockManagerStoreClient();
+      const mockCreated = await mockClient.insertMetricsSample({
+        machineName: 'vm-1',
+        cpu: 1,
+        memoryMb: 10,
+        diskGb: 20,
+        networkRxBytes: 30,
+        networkTxBytes: 40
+      });
+
+      const { fetchStub } = createSequentialFetchStub([
+        {
+          method: 'POST',
+          match: (url, body) => {
+            if (url.pathname !== '/api/entities/MetricsSample') return false;
+            expect(parseJsonBody(body)).toMatchObject({ machineName: 'vm-1', cpu: 1, sampledAt: iso });
+            return true;
+          },
+          response: jsonResponse({
+            id: 'sample-1',
+            machineName: 'vm-1',
+            cpu: 1,
+            memoryMb: 10,
+            diskGb: 20,
+            networkRxBytes: 30,
+            networkTxBytes: 40,
+            sampledAt: iso
+          })
+        }
+      ]);
+
+      await withPatchedFetch(fetchStub, async () => {
+        const realClient = createManagerStoreClient();
+        const realCreated = await realClient.insertMetricsSample({
+          machineName: 'vm-1',
+          cpu: 1,
+          memoryMb: 10,
+          diskGb: 20,
+          networkRxBytes: 30,
+          networkTxBytes: 40
+        });
+        expect(withoutId(realCreated)).toEqual(withoutId(mockCreated));
+      });
+    });
+  });
+
+  test('AuditEvent parity matches real client response shapes', async () => {
+    const iso = '2026-06-03T13:04:00.000Z';
+    await withFixedDate(iso, async () => {
+      resetMockManagerStore();
+      const mockClient = createMockManagerStoreClient();
+      const mockCreated = await mockClient.insertAuditEvent({
+        eventType: 'login',
+        actorUserId: 'u1',
+        action: 'sign_in',
+        details: 'Admin login',
+        ipAddress: '127.0.0.1'
+      });
+
+      const { fetchStub } = createSequentialFetchStub([
+        {
+          method: 'POST',
+          match: (url, body) => {
+            if (url.pathname !== '/api/entities/AuditEvent') return false;
+            expect(parseJsonBody(body)).toMatchObject({ eventType: 'login', createdAt: iso });
+            return true;
+          },
+          response: jsonResponse({
+            id: 'audit-1',
+            eventType: 'login',
+            actorUserId: 'u1',
+            action: 'sign_in',
+            details: 'Admin login',
+            ipAddress: '127.0.0.1',
+            createdAt: iso
+          })
+        }
+      ]);
+
+      await withPatchedFetch(fetchStub, async () => {
+        const realClient = createManagerStoreClient();
+        const realCreated = await realClient.insertAuditEvent({
+          eventType: 'login',
+          actorUserId: 'u1',
+          action: 'sign_in',
+          details: 'Admin login',
+          ipAddress: '127.0.0.1'
+        });
+        expect(withoutId(realCreated)).toEqual(withoutId(mockCreated));
+      });
+    });
+  });
+
+  test('UiPreference parity matches real client response shapes', async () => {
+    const iso = '2026-06-03T13:05:00.000Z';
+    await withFixedDate(iso, async () => {
+      resetMockManagerStore();
+      const mockClient = createMockManagerStoreClient();
+      const mockCreated = await mockClient.setUiPreference('user-1', 'theme', '"dark"');
+
+      const { fetchStub } = createSequentialFetchStub([
+        {
+          method: 'GET',
+          match: (url) =>
+            url.pathname === '/api/entities/UiPreference' &&
+            url.searchParams.get('filter') === 'userId eq "user-1" and key eq "theme"',
+          response: jsonResponse({ data: [] })
+        },
+        {
+          method: 'POST',
+          match: (url, body) => {
+            if (url.pathname !== '/api/entities/UiPreference') return false;
+            expect(parseJsonBody(body)).toMatchObject({
+              userId: 'user-1',
+              key: 'theme',
+              valueJson: '"dark"',
+              updatedAt: iso
+            });
+            return true;
+          },
+          response: jsonResponse({
+            id: 'pref-1',
+            userId: 'user-1',
+            key: 'theme',
+            valueJson: '"dark"',
+            updatedAt: iso
+          })
+        }
+      ]);
+
+      await withPatchedFetch(fetchStub, async () => {
+        const realClient = createManagerStoreClient();
+        const realCreated = await realClient.setUiPreference('user-1', 'theme', '"dark"');
+        expect(withoutId(realCreated)).toEqual(withoutId(mockCreated));
+      });
+    });
+  });
+});
 });
