@@ -18,6 +18,7 @@
     "format:check": "prettier --check .",
     "test": "bun test src",
     "test:e2e": "playwright test",
+    "gate": "bun run scripts/quality-gate.ts",
     "admin:reset": "bun run scripts/reset-admin.ts"
   },
   "devDependencies": {
