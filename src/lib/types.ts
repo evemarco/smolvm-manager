@@ -71,6 +71,11 @@ export type ConfigDiff = {
 
 export type VmFormMode = 'create' | 'edit' | 'copy' | 'recreate';
 
+export type SensitiveMountWarning = {
+  path: string;
+  reason: string;
+};
+
 export type CapacityData = {
   allocatedCpus: number;
   allocatedMemoryMb: number;

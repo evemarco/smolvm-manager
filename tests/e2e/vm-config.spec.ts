@@ -305,4 +305,48 @@ net = true`;
 
     await expect(page.getByText('Create Virtual Machine')).not.toBeVisible();
   });
+
+  test('shows sensitive host mount warning and allows submission', async ({ page }) => {
+    await mockEmptyMachines(page);
+    await loginAsAdmin(page);
+    await waitForDashboardReady(page);
+
+    await page.getByRole('button', { name: 'Create new virtual machine' }).click();
+    await expect(page.getByText('Create Virtual Machine')).toBeVisible();
+
+    await page.getByPlaceholder('my-vm').fill('sensitive-test');
+
+    await page.getByRole('button', { name: 'Volumes' }).click();
+
+    await page.getByPlaceholder('/host/path').fill('/etc');
+    await page.getByPlaceholder('/guest/path').fill('/mnt/etc');
+    await page.getByRole('button', { name: 'Add' }).first().click();
+
+    const warningAlert = page.getByRole('alert');
+    await expect(warningAlert).toBeVisible();
+    await expect(warningAlert.getByText('Sensitive host mount detected')).toBeVisible();
+    await expect(warningAlert.getByText('System configuration directory')).toBeVisible();
+    await expect(warningAlert.getByText('You can still proceed')).toBeVisible();
+
+    const formSection = page.locator('.flex.items-center.justify-end');
+    const createButton = formSection.getByRole('button', { name: 'Create VM' });
+    await expect(createButton).toBeEnabled();
+  });
+
+  test('does not show sensitive mount warning for non-sensitive paths', async ({ page }) => {
+    await mockEmptyMachines(page);
+    await loginAsAdmin(page);
+    await waitForDashboardReady(page);
+
+    await page.getByRole('button', { name: 'Create new virtual machine' }).click();
+    await expect(page.getByText('Create Virtual Machine')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Volumes' }).click();
+
+    await page.getByPlaceholder('/host/path').fill('/data/app');
+    await page.getByPlaceholder('/guest/path').fill('/app');
+    await page.getByRole('button', { name: 'Add' }).first().click();
+
+    await expect(page.getByText('Sensitive host mount detected')).not.toBeVisible();
+  });
 });

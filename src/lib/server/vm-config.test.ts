@@ -13,6 +13,7 @@ import {
   RECREATE_REQUIRED_FIELDS,
   type VmConfig
 } from './vm-config';
+import { detectSensitiveHostMounts } from '$lib/sensitive-mounts';
 
 describe('vm-config: validation', () => {
   it('validates a minimal valid config', () => {
@@ -521,5 +522,174 @@ describe('vm-config: default config', () => {
     expect(config.cpus).toBe(4);
     expect(config.memory).toBe(8192);
     expect(config.net).toBe(true);
+  });
+});
+
+describe('vm-config: sensitive host mount detection', () => {
+  it('detects root filesystem mount', () => {
+    const warnings = detectSensitiveHostMounts([{ host: '/', guest: '/mnt/root' }]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].path).toBe('/');
+    expect(warnings[0].reason).toContain('Root filesystem');
+  });
+
+  it('detects /etc mount', () => {
+    const warnings = detectSensitiveHostMounts([{ host: '/etc', guest: '/mnt/etc' }]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].path).toBe('/etc');
+  });
+
+  it('detects /home mount', () => {
+    const warnings = detectSensitiveHostMounts([{ host: '/home', guest: '/mnt/home' }]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].reason).toContain('user data');
+  });
+
+  it('detects /root mount', () => {
+    const warnings = detectSensitiveHostMounts([{ host: '/root', guest: '/mnt/root' }]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].reason).toContain('root user data');
+  });
+
+  it('detects Docker socket mount', () => {
+    const warnings = detectSensitiveHostMounts([
+      { host: '/var/run/docker.sock', guest: '/var/run/docker.sock' }
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].reason).toContain('Docker socket');
+  });
+
+  it('detects /etc/ssh prefix', () => {
+    const warnings = detectSensitiveHostMounts([
+      { host: '/etc/ssh', guest: '/mnt/ssh' }
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].reason).toContain('SSH server');
+  });
+
+it('detects /etc/ssh subdirectory', () => {
+    const warnings = detectSensitiveHostMounts([
+      { host: '/etc/ssh/sshd_config', guest: '/mnt/sshd' }
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].reason).toContain('SSH server');
+  });
+
+  it('detects /root/.ssh prefix', () => {
+    const warnings = detectSensitiveHostMounts([
+      { host: '/root/.ssh', guest: '/mnt/ssh' }
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].reason).toContain('root SSH');
+  });
+
+  it('detects /root/.ssh subdirectory', () => {
+    const warnings = detectSensitiveHostMounts([
+      { host: '/root/.ssh/config', guest: '/mnt/ssh-config' }
+    ]);
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('detects /home/<user> prefix', () => {
+    const warnings = detectSensitiveHostMounts([
+      { host: '/home/alice', guest: '/mnt/alice' }
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].reason).toContain('User home directory');
+  });
+
+  it('detects id_rsa filename', () => {
+    const warnings = detectSensitiveHostMounts([
+      { host: '/secret/keys/id_rsa', guest: '/mnt/key' }
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].reason).toContain('RSA private key');
+  });
+
+  it('detects id_ed25519 filename', () => {
+    const warnings = detectSensitiveHostMounts([
+      { host: '/secret/keys/id_ed25519', guest: '/mnt/key' }
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].reason).toContain('Ed25519');
+  });
+
+  it('detects authorized_keys filename', () => {
+    const warnings = detectSensitiveHostMounts([
+      { host: '/secret/keys/authorized_keys', guest: '/mnt/ak' }
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].reason).toContain('Authorized keys');
+  });
+
+  it('detects ssh_host key filename outside /etc/ssh', () => {
+    const warnings = detectSensitiveHostMounts([
+      { host: '/backup/ssh_host_ed25519_key', guest: '/mnt/hostkey' }
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].reason).toContain('SSH host key');
+  });
+
+  it('detects ssh_host key under /etc/ssh (prefix match takes priority)', () => {
+    const warnings = detectSensitiveHostMounts([
+      { host: '/etc/ssh/ssh_host_ed25519_key', guest: '/mnt/hostkey' }
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].reason).toContain('SSH server');
+  });
+
+  it('returns empty for non-sensitive paths', () => {
+    const warnings = detectSensitiveHostMounts([
+      { host: '/data/app', guest: '/app' },
+      { host: '/opt/tools', guest: '/tools' },
+      { host: '/var/log/app', guest: '/logs' }
+    ]);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('returns multiple warnings for mixed volumes', () => {
+    const warnings = detectSensitiveHostMounts([
+      { host: '/etc', guest: '/mnt/etc' },
+      { host: '/data/app', guest: '/app' },
+      { host: '/var/run/docker.sock', guest: '/var/run/docker.sock' }
+    ]);
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0].path).toBe('/etc');
+    expect(warnings[1].path).toBe('/var/run/docker.sock');
+  });
+
+  it('does not double-warn exact match that also matches prefix', () => {
+    const warnings = detectSensitiveHostMounts([{ host: '/etc', guest: '/mnt/etc' }]);
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('detects id_ecdsa and id_dsa filenames', () => {
+    const ecdsa = detectSensitiveHostMounts([
+      { host: '/secret/keys/id_ecdsa', guest: '/mnt/key' }
+    ]);
+    expect(ecdsa).toHaveLength(1);
+    expect(ecdsa[0].reason).toContain('ECDSA');
+
+    const dsa = detectSensitiveHostMounts([
+      { host: '/secret/keys/id_dsa', guest: '/mnt/key' }
+    ]);
+    expect(dsa).toHaveLength(1);
+    expect(dsa[0].reason).toContain('DSA');
+  });
+
+  it('detects known_hosts filename', () => {
+    const warnings = detectSensitiveHostMounts([
+      { host: '/secret/keys/known_hosts', guest: '/mnt/kh' }
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].reason).toContain('Known hosts');
+  });
+
+  it('prefix match takes priority over filename match for /home paths', () => {
+    const warnings = detectSensitiveHostMounts([
+      { host: '/home/alice/.ssh/id_rsa', guest: '/mnt/key' }
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].reason).toContain('User home directory');
   });
 });

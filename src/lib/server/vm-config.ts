@@ -72,6 +72,9 @@ export type ValidationResult = {
   errors: ValidationError[];
 };
 
+export { detectSensitiveHostMounts } from '$lib/sensitive-mounts';
+export type { SensitiveMountWarning } from '$lib/types';
+
 // ─── Validation ──────────────────────────────────────────────────────────────
 
 const VALID_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;

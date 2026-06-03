@@ -14,6 +14,7 @@
   import { toasts } from '$lib/toast';
   import ConfirmationModal from '$lib/components/ConfirmationModal.svelte';
   import ImagePicker from '$lib/components/ImagePicker.svelte';
+  import { detectSensitiveHostMounts } from '$lib/sensitive-mounts';
   import type {
     VmConfig,
     VmVolumeMount,
@@ -73,6 +74,12 @@
   let newAllowHost = $state('');
   let newAllowCidr = $state('');
   let newInitCommand = $state('');
+
+  let sensitiveMountWarnings = $derived(
+    config.volumes && config.volumes.length > 0
+      ? detectSensitiveHostMounts(config.volumes)
+      : []
+  );
 
   function defaultConfig(): VmConfig {
     return {
@@ -891,6 +898,27 @@
                   </button>
                 </div>
               {/each}
+            </div>
+          {/if}
+          {#if sensitiveMountWarnings.length > 0}
+            <div
+              class="mb-3 flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2"
+              role="alert"
+            >
+              <AlertTriangle size={16} class="mt-0.5 shrink-0 text-amber-400" />
+              <div>
+                <p class="text-xs font-medium text-amber-300">Sensitive host mount detected</p>
+                <ul class="mt-1 list-disc pl-4">
+                  {#each sensitiveMountWarnings as warning (warning.path)}
+                    <li class="text-xs text-amber-200">
+                      <span class="font-mono">{warning.path}</span> — {warning.reason}
+                    </li>
+                  {/each}
+                </ul>
+                <p class="mt-1 text-xs text-amber-300/80">
+                  This mount may expose sensitive host data. You can still proceed if this is intentional.
+                </p>
+              </div>
             </div>
           {/if}
           <div class="flex flex-wrap gap-2">
