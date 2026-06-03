@@ -5,8 +5,13 @@
  * ManagerSetting, SavedVmConfig, TomlSnapshot, MetricsSample,
  * UiPreference, and AuditEvent.
  *
- * In test environments, set PYLON_STORE_MOCK=true to use the
- * in-memory mock implementation instead of real HTTP calls.
+ * PYLON_STORE_MODE controls the implementation:
+ * - typed (default): typed Pylon entity facade via @pylonsync/sync transport
+ * - rest: legacy direct REST entity endpoint calls
+ * - mock: in-memory mock implementation
+ *
+ * PYLON_STORE_MOCK=true is still honored as a legacy alias for mock mode
+ * when PYLON_STORE_MODE is not set.
  */
 
 export const STORE_ERROR_CODES = {
@@ -17,6 +22,8 @@ export const STORE_ERROR_CODES = {
 } as const;
 
 export type ManagerStoreErrorCode = (typeof STORE_ERROR_CODES)[keyof typeof STORE_ERROR_CODES];
+
+export type ManagerStoreMode = 'typed' | 'rest' | 'mock';
 
 export class ManagerStoreError extends Error {
   code: ManagerStoreErrorCode;
@@ -153,6 +160,31 @@ function getPylonBaseUrl(): string {
   return process.env.PYLON_URL?.trim() || 'http://127.0.0.1:3001';
 }
 
+type PylonFetchRaw = (
+  config: { baseUrl?: string },
+  path: string,
+  init: {
+    method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+    json?: unknown;
+    accept?: string;
+  }
+) => Promise<Response>;
+
+async function loadPylonFetchRaw(): Promise<PylonFetchRaw> {
+  const dynamicImport = new Function('specifier', 'return import(specifier)') as (
+    specifier: string
+  ) => Promise<{ pylonFetchRaw: PylonFetchRaw }>;
+  const sync = await dynamicImport('@pylonsync/sync');
+  return sync.pylonFetchRaw;
+}
+
+export function getManagerStoreMode(): ManagerStoreMode {
+  const mode = process.env.PYLON_STORE_MODE?.trim().toLowerCase();
+  if (mode === 'typed' || mode === 'rest' || mode === 'mock') return mode;
+  if (!mode && process.env.PYLON_STORE_MOCK === 'true') return 'mock';
+  return 'typed';
+}
+
 async function pylonFetchJson(
   path: string,
   init: RequestInit
@@ -185,6 +217,126 @@ async function pylonFetchJson(
     return { status: response.status, body };
   } catch {
     throw new ManagerStoreError(STORE_ERROR_CODES.UNAVAILABLE, 'Pylon store is unreachable.', 503);
+  }
+}
+
+async function pylonTransportFetchJson(
+  path: string,
+  init: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; json?: unknown }
+): Promise<{ status: number; body: unknown }> {
+  const config = { baseUrl: getPylonBaseUrl() };
+
+  try {
+    const pylonFetchRaw = await loadPylonFetchRaw();
+    const response = await pylonFetchRaw(config, path, {
+      method: init.method,
+      json: init.json,
+      accept: 'application/json'
+    });
+
+    let body: unknown = null;
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const text = await response.text();
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = null;
+      }
+    }
+
+    return { status: response.status, body };
+  } catch {
+    throw new ManagerStoreError(STORE_ERROR_CODES.UNAVAILABLE, 'Pylon store is unreachable.', 503);
+  }
+}
+
+type PylonEntityName =
+  | 'ManagerSetting'
+  | 'SavedVmConfig'
+  | 'TomlSnapshot'
+  | 'MetricsSample'
+  | 'AuditEvent'
+  | 'UiPreference';
+
+type PylonListOptions = {
+  filter?: string;
+  limit?: number;
+};
+
+interface PylonEntityStore {
+  list(entity: PylonEntityName, options?: PylonListOptions): Promise<{ status: number; body: unknown }>;
+  get(entity: PylonEntityName, id: string): Promise<{ status: number; body: unknown }>;
+  create(entity: PylonEntityName, data: Record<string, unknown>): Promise<{ status: number; body: unknown }>;
+  update(
+    entity: PylonEntityName,
+    id: string,
+    data: Record<string, unknown>
+  ): Promise<{ status: number; body: unknown }>;
+  delete(entity: PylonEntityName, id: string): Promise<{ status: number; body: unknown }>;
+}
+
+function quoteFilterValue(value: string): string {
+  return encodeURIComponent(value);
+}
+
+function entityCollectionPath(entity: PylonEntityName, options?: PylonListOptions): string {
+  let path = `/api/entities/${entity}`;
+  const params = new URLSearchParams();
+  if (options?.filter) params.append('filter', options.filter);
+  if (options?.limit) params.append('limit', String(options.limit));
+  const query = params.toString();
+  if (query) path += `?${query}`;
+  return path;
+}
+
+class RestPylonEntityStore implements PylonEntityStore {
+  list(entity: PylonEntityName, options?: PylonListOptions) {
+    return pylonFetchJson(entityCollectionPath(entity, options), { method: 'GET' });
+  }
+
+  get(entity: PylonEntityName, id: string) {
+    return pylonFetchJson(`/api/entities/${entity}/${id}`, { method: 'GET' });
+  }
+
+  create(entity: PylonEntityName, data: Record<string, unknown>) {
+    return pylonFetchJson(`/api/entities/${entity}`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  update(entity: PylonEntityName, id: string, data: Record<string, unknown>) {
+    return pylonFetchJson(`/api/entities/${entity}/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+  }
+
+  delete(entity: PylonEntityName, id: string) {
+    return pylonFetchJson(`/api/entities/${entity}/${id}`, { method: 'DELETE' });
+  }
+}
+
+class TypedPylonEntityStore implements PylonEntityStore {
+  list(entity: PylonEntityName, options?: PylonListOptions) {
+    return pylonTransportFetchJson(entityCollectionPath(entity, options), { method: 'GET' });
+  }
+
+  get(entity: PylonEntityName, id: string) {
+    return pylonTransportFetchJson(`/api/entities/${entity}/${id}`, { method: 'GET' });
+  }
+
+  create(entity: PylonEntityName, data: Record<string, unknown>) {
+    return pylonTransportFetchJson(`/api/entities/${entity}`, { method: 'POST', json: data });
+  }
+
+  update(entity: PylonEntityName, id: string, data: Record<string, unknown>) {
+    return pylonTransportFetchJson(`/api/entities/${entity}/${id}`, { method: 'PATCH', json: data });
+  }
+
+  delete(entity: PylonEntityName, id: string) {
+    return pylonTransportFetchJson(`/api/entities/${entity}/${id}`, { method: 'DELETE' });
   }
 }
 
@@ -274,13 +426,12 @@ function asUiPreference(row: Record<string, unknown>): UiPreference {
   };
 }
 
-export function createManagerStoreClient(): ManagerStoreClient {
+function createEntityBackedManagerStoreClient(store: PylonEntityStore): ManagerStoreClient {
   return {
     async getSetting(key) {
-      const { status, body } = await pylonFetchJson(
-        `/api/entities/ManagerSetting?filter=key eq "${encodeURIComponent(key)}"`,
-        { method: 'GET' }
-      );
+      const { status, body } = await store.list('ManagerSetting', {
+        filter: `key eq "${quoteFilterValue(key)}"`
+      });
       if (status !== 200) {
         throw new ManagerStoreError(
           STORE_ERROR_CODES.REQUEST_FAILED,
@@ -296,13 +447,10 @@ export function createManagerStoreClient(): ManagerStoreClient {
     async setSetting(key, valueJson) {
       const existing = await this.getSetting(key);
       if (existing) {
-        const { status, body } = await pylonFetchJson(
-          `/api/entities/ManagerSetting/${existing.id}`,
-          {
-            method: 'PATCH',
-            body: JSON.stringify({ valueJson, updatedAt: new Date().toISOString() })
-          }
-        );
+        const { status, body } = await store.update('ManagerSetting', existing.id, {
+          valueJson,
+          updatedAt: new Date().toISOString()
+        });
         if (status !== 200) {
           throw new ManagerStoreError(
             STORE_ERROR_CODES.REQUEST_FAILED,
@@ -312,9 +460,10 @@ export function createManagerStoreClient(): ManagerStoreClient {
         }
         return asSetting(assertObject(body));
       }
-      const { status, body } = await pylonFetchJson('/api/entities/ManagerSetting', {
-        method: 'POST',
-        body: JSON.stringify({ key, valueJson, updatedAt: new Date().toISOString() })
+      const { status, body } = await store.create('ManagerSetting', {
+        key,
+        valueJson,
+        updatedAt: new Date().toISOString()
       });
       if (status !== 200 && status !== 201) {
         throw new ManagerStoreError(
@@ -327,9 +476,7 @@ export function createManagerStoreClient(): ManagerStoreClient {
     },
 
     async listSettings() {
-      const { status, body } = await pylonFetchJson('/api/entities/ManagerSetting', {
-        method: 'GET'
-      });
+      const { status, body } = await store.list('ManagerSetting');
       if (status !== 200) {
         throw new ManagerStoreError(
           STORE_ERROR_CODES.REQUEST_FAILED,
@@ -342,9 +489,10 @@ export function createManagerStoreClient(): ManagerStoreClient {
 
     async createSavedVmConfig(data) {
       const now = new Date().toISOString();
-      const { status, body } = await pylonFetchJson('/api/entities/SavedVmConfig', {
-        method: 'POST',
-        body: JSON.stringify({ ...data, createdAt: now, updatedAt: now })
+      const { status, body } = await store.create('SavedVmConfig', {
+        ...data,
+        createdAt: now,
+        updatedAt: now
       });
       if (status !== 200 && status !== 201) {
         throw new ManagerStoreError(
@@ -357,9 +505,7 @@ export function createManagerStoreClient(): ManagerStoreClient {
     },
 
     async getSavedVmConfig(id) {
-      const { status, body } = await pylonFetchJson(`/api/entities/SavedVmConfig/${id}`, {
-        method: 'GET'
-      });
+      const { status, body } = await store.get('SavedVmConfig', id);
       if (status === 404) return null;
       if (status !== 200) {
         throw new ManagerStoreError(
@@ -372,9 +518,7 @@ export function createManagerStoreClient(): ManagerStoreClient {
     },
 
     async listSavedVmConfigs() {
-      const { status, body } = await pylonFetchJson('/api/entities/SavedVmConfig', {
-        method: 'GET'
-      });
+      const { status, body } = await store.list('SavedVmConfig');
       if (status !== 200) {
         throw new ManagerStoreError(
           STORE_ERROR_CODES.REQUEST_FAILED,
@@ -386,9 +530,9 @@ export function createManagerStoreClient(): ManagerStoreClient {
     },
 
     async updateSavedVmConfig(id, data) {
-      const { status, body } = await pylonFetchJson(`/api/entities/SavedVmConfig/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ ...data, updatedAt: new Date().toISOString() })
+      const { status, body } = await store.update('SavedVmConfig', id, {
+        ...data,
+        updatedAt: new Date().toISOString()
       });
       if (status !== 200) {
         throw new ManagerStoreError(
@@ -401,9 +545,7 @@ export function createManagerStoreClient(): ManagerStoreClient {
     },
 
     async deleteSavedVmConfig(id) {
-      const { status } = await pylonFetchJson(`/api/entities/SavedVmConfig/${id}`, {
-        method: 'DELETE'
-      });
+      const { status } = await store.delete('SavedVmConfig', id);
       if (status !== 200 && status !== 204) {
         throw new ManagerStoreError(
           STORE_ERROR_CODES.REQUEST_FAILED,
@@ -414,9 +556,9 @@ export function createManagerStoreClient(): ManagerStoreClient {
     },
 
     async createTomlSnapshot(data) {
-      const { status, body } = await pylonFetchJson('/api/entities/TomlSnapshot', {
-        method: 'POST',
-        body: JSON.stringify({ ...data, createdAt: new Date().toISOString() })
+      const { status, body } = await store.create('TomlSnapshot', {
+        ...data,
+        createdAt: new Date().toISOString()
       });
       if (status !== 200 && status !== 201) {
         throw new ManagerStoreError(
@@ -429,10 +571,10 @@ export function createManagerStoreClient(): ManagerStoreClient {
     },
 
     async listTomlSnapshots(machineName) {
-      const path = machineName
-        ? `/api/entities/TomlSnapshot?filter=machineName eq "${encodeURIComponent(machineName)}"`
-        : '/api/entities/TomlSnapshot';
-      const { status, body } = await pylonFetchJson(path, { method: 'GET' });
+      const { status, body } = await store.list(
+        'TomlSnapshot',
+        machineName ? { filter: `machineName eq "${quoteFilterValue(machineName)}"` } : undefined
+      );
       if (status !== 200) {
         throw new ManagerStoreError(
           STORE_ERROR_CODES.REQUEST_FAILED,
@@ -444,9 +586,9 @@ export function createManagerStoreClient(): ManagerStoreClient {
     },
 
     async insertMetricsSample(data) {
-      const { status, body } = await pylonFetchJson('/api/entities/MetricsSample', {
-        method: 'POST',
-        body: JSON.stringify({ ...data, sampledAt: new Date().toISOString() })
+      const { status, body } = await store.create('MetricsSample', {
+        ...data,
+        sampledAt: new Date().toISOString()
       });
       if (status !== 200 && status !== 201) {
         throw new ManagerStoreError(
@@ -459,13 +601,10 @@ export function createManagerStoreClient(): ManagerStoreClient {
     },
 
     async listMetricsSamples(machineName, limit) {
-      let path = '/api/entities/MetricsSample';
-      const params = new URLSearchParams();
-      if (machineName)
-        params.append('filter', `machineName eq "${encodeURIComponent(machineName)}"`);
-      if (limit) params.append('limit', String(limit));
-      if (params.toString()) path += `?${params.toString()}`;
-      const { status, body } = await pylonFetchJson(path, { method: 'GET' });
+      const { status, body } = await store.list('MetricsSample', {
+        filter: machineName ? `machineName eq "${quoteFilterValue(machineName)}"` : undefined,
+        limit
+      });
       if (status !== 200) {
         throw new ManagerStoreError(
           STORE_ERROR_CODES.REQUEST_FAILED,
@@ -490,15 +629,15 @@ export function createManagerStoreClient(): ManagerStoreClient {
         toDelete = sorted.slice(0, samples.length - maxCount);
       }
       for (const s of toDelete) {
-        await pylonFetchJson(`/api/entities/MetricsSample/${s.id}`, { method: 'DELETE' });
+        await store.delete('MetricsSample', s.id);
       }
       return toDelete.length;
     },
 
     async insertAuditEvent(data) {
-      const { status, body } = await pylonFetchJson('/api/entities/AuditEvent', {
-        method: 'POST',
-        body: JSON.stringify({ ...data, createdAt: new Date().toISOString() })
+      const { status, body } = await store.create('AuditEvent', {
+        ...data,
+        createdAt: new Date().toISOString()
       });
       if (status !== 200 && status !== 201) {
         throw new ManagerStoreError(
@@ -511,8 +650,7 @@ export function createManagerStoreClient(): ManagerStoreClient {
     },
 
     async listAuditEvents(limit) {
-      const path = limit ? `/api/entities/AuditEvent?limit=${limit}` : '/api/entities/AuditEvent';
-      const { status, body } = await pylonFetchJson(path, { method: 'GET' });
+      const { status, body } = await store.list('AuditEvent', { limit });
       if (status !== 200) {
         throw new ManagerStoreError(
           STORE_ERROR_CODES.REQUEST_FAILED,
@@ -537,16 +675,15 @@ export function createManagerStoreClient(): ManagerStoreClient {
         toDelete = sorted.slice(0, events.length - maxCount);
       }
       for (const e of toDelete) {
-        await pylonFetchJson(`/api/entities/AuditEvent/${e.id}`, { method: 'DELETE' });
+        await store.delete('AuditEvent', e.id);
       }
       return toDelete.length;
     },
 
     async getUiPreference(userId, key) {
-      const { status, body } = await pylonFetchJson(
-        `/api/entities/UiPreference?filter=userId eq "${encodeURIComponent(userId)}" and key eq "${encodeURIComponent(key)}"`,
-        { method: 'GET' }
-      );
+      const { status, body } = await store.list('UiPreference', {
+        filter: `userId eq "${quoteFilterValue(userId)}" and key eq "${quoteFilterValue(key)}"`
+      });
       if (status !== 200) {
         throw new ManagerStoreError(
           STORE_ERROR_CODES.REQUEST_FAILED,
@@ -562,9 +699,9 @@ export function createManagerStoreClient(): ManagerStoreClient {
     async setUiPreference(userId, key, valueJson) {
       const existing = await this.getUiPreference(userId, key);
       if (existing) {
-        const { status, body } = await pylonFetchJson(`/api/entities/UiPreference/${existing.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ valueJson, updatedAt: new Date().toISOString() })
+        const { status, body } = await store.update('UiPreference', existing.id, {
+          valueJson,
+          updatedAt: new Date().toISOString()
         });
         if (status !== 200) {
           throw new ManagerStoreError(
@@ -575,9 +712,11 @@ export function createManagerStoreClient(): ManagerStoreClient {
         }
         return asUiPreference(assertObject(body));
       }
-      const { status, body } = await pylonFetchJson('/api/entities/UiPreference', {
-        method: 'POST',
-        body: JSON.stringify({ userId, key, valueJson, updatedAt: new Date().toISOString() })
+      const { status, body } = await store.create('UiPreference', {
+        userId,
+        key,
+        valueJson,
+        updatedAt: new Date().toISOString()
       });
       if (status !== 200 && status !== 201) {
         throw new ManagerStoreError(
@@ -590,10 +729,9 @@ export function createManagerStoreClient(): ManagerStoreClient {
     },
 
     async listUiPreferences(userId) {
-      const { status, body } = await pylonFetchJson(
-        `/api/entities/UiPreference?filter=userId eq "${encodeURIComponent(userId)}"`,
-        { method: 'GET' }
-      );
+      const { status, body } = await store.list('UiPreference', {
+        filter: `userId eq "${quoteFilterValue(userId)}"`
+      });
       if (status !== 200) {
         throw new ManagerStoreError(
           STORE_ERROR_CODES.REQUEST_FAILED,
@@ -604,6 +742,14 @@ export function createManagerStoreClient(): ManagerStoreClient {
       return asList(body).map(asUiPreference);
     }
   };
+}
+
+export function createManagerStoreClient(): ManagerStoreClient {
+  return createEntityBackedManagerStoreClient(new RestPylonEntityStore());
+}
+
+export function createTypedManagerStoreClient(): ManagerStoreClient {
+  return createEntityBackedManagerStoreClient(new TypedPylonEntityStore());
 }
 
 // ---------------------------------------------------------------------------
@@ -816,10 +962,24 @@ export function createMockManagerStoreClient(): ManagerStoreClient {
 }
 
 export function getManagerStoreClient(): ManagerStoreClient {
-  if (process.env.PYLON_STORE_MOCK === 'true') {
+  const mode = getManagerStoreMode();
+  if (mode === 'mock') {
     return createMockManagerStoreClient();
   }
-  return createManagerStoreClient();
+  if (mode === 'rest') {
+    return createManagerStoreClient();
+  }
+  return createTypedManagerStoreClient();
+}
+
+export function createManagerStoreClientForMode(mode: ManagerStoreMode): ManagerStoreClient {
+  if (mode === 'mock') {
+    return createMockManagerStoreClient();
+  }
+  if (mode === 'rest') {
+    return createManagerStoreClient();
+  }
+  return createTypedManagerStoreClient();
 }
 
 // Test accessors for mock state

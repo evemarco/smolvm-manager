@@ -3,6 +3,8 @@ import manifest from '../../../app.ts';
 import {
   createMockManagerStoreClient,
   createManagerStoreClient,
+  getManagerStoreClient,
+  getManagerStoreMode,
   resetMockManagerStore,
   getMockSavedVmConfigs,
   getMockMetricsSamples,
@@ -21,6 +23,7 @@ type FetchCall = {
   url: URL;
   method: string;
   body: string | undefined;
+  init: RequestInit | undefined;
 };
 
 type FetchRoute = {
@@ -28,6 +31,8 @@ type FetchRoute = {
   match: (url: URL, body: string | undefined) => boolean;
   response: Response | ((call: FetchCall) => Response | Promise<Response>);
 };
+
+type FetchStub = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -46,7 +51,7 @@ function createSequentialFetchStub(routes: FetchRoute[]) {
     );
     const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
     const body = typeof init?.body === 'string' ? init.body : undefined;
-    const call = { url, method, body };
+    const call = { url, method, body, init };
     calls.push(call);
 
     const route = routes[index++];
@@ -63,7 +68,7 @@ function createSequentialFetchStub(routes: FetchRoute[]) {
   return { fetchStub, calls };
 }
 
-async function withPatchedFetch<T>(fetchStub: any, fn: () => Promise<T>): Promise<T> {
+async function withPatchedFetch<T>(fetchStub: FetchStub, fn: () => Promise<T>): Promise<T> {
   const originalFetch = globalThis.fetch;
   const originalPylonUrl = process.env.PYLON_URL;
   process.env.PYLON_URL = 'http://pylon.test';
@@ -81,17 +86,48 @@ async function withPatchedFetch<T>(fetchStub: any, fn: () => Promise<T>): Promis
   }
 }
 
+async function withStoreMode<T>(
+  mode: 'typed' | 'rest' | 'mock' | undefined,
+  fn: () => Promise<T>
+): Promise<T> {
+  const originalMode = process.env.PYLON_STORE_MODE;
+  const originalMock = process.env.PYLON_STORE_MOCK;
+
+  if (mode === undefined) {
+    delete process.env.PYLON_STORE_MODE;
+    delete process.env.PYLON_STORE_MOCK;
+  } else {
+    process.env.PYLON_STORE_MODE = mode;
+    delete process.env.PYLON_STORE_MOCK;
+  }
+
+  try {
+    return await fn();
+  } finally {
+    if (originalMode === undefined) {
+      delete process.env.PYLON_STORE_MODE;
+    } else {
+      process.env.PYLON_STORE_MODE = originalMode;
+    }
+    if (originalMock === undefined) {
+      delete process.env.PYLON_STORE_MOCK;
+    } else {
+      process.env.PYLON_STORE_MOCK = originalMock;
+    }
+  }
+}
+
 async function withFixedDate<T>(iso: string, fn: () => Promise<T>): Promise<T> {
   const RealDate = Date;
 
   class FixedDate extends RealDate {
-    constructor(...args: any[]) {
-      if (args.length === 0) {
+    constructor(value?: string | number | Date) {
+      if (arguments.length === 0) {
         super(iso);
         return;
       }
 
-      super(args[0]);
+      super(value!);
     }
 
     static now(): number {
@@ -121,7 +157,8 @@ function parseJsonBody(body: string | undefined): Record<string, unknown> {
 }
 
 function withoutId<T extends { id: string }>(value: T): Omit<T, 'id'> {
-  const { id: _id, ...rest } = value;
+  const { id, ...rest } = value;
+  void id;
   return rest;
 }
 
@@ -566,6 +603,95 @@ describe('error codes', () => {
   });
 });
 
+describe('store mode selection', () => {
+  test('defaults to typed mode when no store env is set', async () => {
+    await withStoreMode(undefined, async () => {
+      expect(getManagerStoreMode()).toBe('typed');
+    });
+  });
+
+  test('honors explicit typed, rest, and mock modes', async () => {
+    await withStoreMode('typed', async () => {
+      expect(getManagerStoreMode()).toBe('typed');
+    });
+    await withStoreMode('rest', async () => {
+      expect(getManagerStoreMode()).toBe('rest');
+    });
+    await withStoreMode('mock', async () => {
+      expect(getManagerStoreMode()).toBe('mock');
+    });
+  });
+
+  test('preserves PYLON_STORE_MOCK as a legacy mock alias', async () => {
+    const originalMode = process.env.PYLON_STORE_MODE;
+    const originalMock = process.env.PYLON_STORE_MOCK;
+    delete process.env.PYLON_STORE_MODE;
+    process.env.PYLON_STORE_MOCK = 'true';
+
+    try {
+      expect(getManagerStoreMode()).toBe('mock');
+    } finally {
+      if (originalMode === undefined) {
+        delete process.env.PYLON_STORE_MODE;
+      } else {
+        process.env.PYLON_STORE_MODE = originalMode;
+      }
+      if (originalMock === undefined) {
+        delete process.env.PYLON_STORE_MOCK;
+      } else {
+        process.env.PYLON_STORE_MOCK = originalMock;
+      }
+    }
+  });
+
+  test('getManagerStoreClient returns the mock implementation in mock mode', async () => {
+    await withStoreMode('mock', async () => {
+      resetMockManagerStore();
+      const client = getManagerStoreClient();
+      await client.setSetting('theme', '"dark"');
+
+      expect(getMockSettings()).toHaveLength(1);
+    });
+  });
+
+  test('getManagerStoreClient uses REST fallback in rest mode', async () => {
+    const { fetchStub } = createSequentialFetchStub([
+      {
+        method: 'GET',
+        match: (url) => url.pathname === '/api/entities/ManagerSetting',
+        response: jsonResponse({ data: [] })
+      }
+    ]);
+
+    await withStoreMode('rest', async () => {
+      await withPatchedFetch(fetchStub, async () => {
+        const client = getManagerStoreClient();
+        await expect(client.listSettings()).resolves.toEqual([]);
+      });
+    });
+  });
+
+  test('typed mode uses the Pylon sync transport against generated entity endpoints', async () => {
+    const { fetchStub, calls } = createSequentialFetchStub([
+      {
+        method: 'GET',
+        match: (url) => url.pathname === '/api/entities/ManagerSetting',
+        response: jsonResponse({ data: [] })
+      }
+    ]);
+
+    await withStoreMode('typed', async () => {
+      await withPatchedFetch(fetchStub, async () => {
+        const client = getManagerStoreClient();
+        await expect(client.listSettings()).resolves.toEqual([]);
+      });
+    });
+
+    expect(calls[0].init?.credentials).toBe('include');
+    expect(new Headers(calls[0].init?.headers).get('Accept')).toBe('application/json');
+  });
+});
+
 describe('real client contract', () => {
   test('ManagerSetting methods preserve timestamps and request shapes', async () => {
     const iso = '2026-06-03T12:00:00.000Z';
@@ -643,11 +769,11 @@ describe('real client contract', () => {
       });
     });
 
-    const throwingFetch = async () => {
+    const throwingFetch: FetchStub = async () => {
       throw new TypeError('network down');
     };
 
-    await withPatchedFetch(throwingFetch as any, async () => {
+    await withPatchedFetch(throwingFetch, async () => {
       const client = createManagerStoreClient();
       await expect(client.listSettings()).rejects.toMatchObject({
         code: STORE_ERROR_CODES.UNAVAILABLE,
