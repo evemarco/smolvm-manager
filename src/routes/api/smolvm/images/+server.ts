@@ -1,4 +1,8 @@
-import { smolVmErrorResponse, smolVmJson, unauthorizedSmolVmResponse } from '$lib/server/smolvm-api';
+import {
+  smolVmErrorResponse,
+  smolVmJson,
+  unauthorizedSmolVmResponse
+} from '$lib/server/smolvm-api';
 import { getSmolVmClient } from '$lib/server/smolvm-client';
 import type { RequestHandler } from './$types';
 
@@ -8,8 +12,7 @@ function missingMachineResponse(): Response {
       available: false,
       feature: 'images',
       code: 'SMOLVM_MACHINE_REQUIRED',
-      message:
-        'SmolVM 0.8.1 exposes image cache operations per machine. Supply ?machine=<name>.'
+      message: 'SmolVM 0.8.1 exposes image cache operations per machine. Supply ?machine=<name>.'
     },
     { status: 400 }
   );

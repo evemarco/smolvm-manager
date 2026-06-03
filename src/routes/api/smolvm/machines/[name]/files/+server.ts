@@ -1,4 +1,8 @@
-import { smolVmJson, smolVmErrorResponse, unauthorizedSmolVmResponse } from '$lib/server/smolvm-api';
+import {
+  smolVmJson,
+  smolVmErrorResponse,
+  unauthorizedSmolVmResponse
+} from '$lib/server/smolvm-api';
 import { getSmolVmClient } from '$lib/server/smolvm-client';
 import type { RequestHandler } from './$types';
 

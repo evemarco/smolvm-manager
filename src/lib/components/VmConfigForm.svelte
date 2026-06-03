@@ -76,9 +76,7 @@
   let newInitCommand = $state('');
 
   let sensitiveMountWarnings = $derived(
-    config.volumes && config.volumes.length > 0
-      ? detectSensitiveHostMounts(config.volumes)
-      : []
+    config.volumes && config.volumes.length > 0 ? detectSensitiveHostMounts(config.volumes) : []
   );
 
   function defaultConfig(): VmConfig {
@@ -916,7 +914,8 @@
                   {/each}
                 </ul>
                 <p class="mt-1 text-xs text-amber-300/80">
-                  This mount may expose sensitive host data. You can still proceed if this is intentional.
+                  This mount may expose sensitive host data. You can still proceed if this is
+                  intentional.
                 </p>
               </div>
             </div>

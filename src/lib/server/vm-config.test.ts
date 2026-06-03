@@ -560,14 +560,12 @@ describe('vm-config: sensitive host mount detection', () => {
   });
 
   it('detects /etc/ssh prefix', () => {
-    const warnings = detectSensitiveHostMounts([
-      { host: '/etc/ssh', guest: '/mnt/ssh' }
-    ]);
+    const warnings = detectSensitiveHostMounts([{ host: '/etc/ssh', guest: '/mnt/ssh' }]);
     expect(warnings).toHaveLength(1);
     expect(warnings[0].reason).toContain('SSH server');
   });
 
-it('detects /etc/ssh subdirectory', () => {
+  it('detects /etc/ssh subdirectory', () => {
     const warnings = detectSensitiveHostMounts([
       { host: '/etc/ssh/sshd_config', guest: '/mnt/sshd' }
     ]);
@@ -576,9 +574,7 @@ it('detects /etc/ssh subdirectory', () => {
   });
 
   it('detects /root/.ssh prefix', () => {
-    const warnings = detectSensitiveHostMounts([
-      { host: '/root/.ssh', guest: '/mnt/ssh' }
-    ]);
+    const warnings = detectSensitiveHostMounts([{ host: '/root/.ssh', guest: '/mnt/ssh' }]);
     expect(warnings).toHaveLength(1);
     expect(warnings[0].reason).toContain('root SSH');
   });
@@ -591,9 +587,7 @@ it('detects /etc/ssh subdirectory', () => {
   });
 
   it('detects /home/<user> prefix', () => {
-    const warnings = detectSensitiveHostMounts([
-      { host: '/home/alice', guest: '/mnt/alice' }
-    ]);
+    const warnings = detectSensitiveHostMounts([{ host: '/home/alice', guest: '/mnt/alice' }]);
     expect(warnings).toHaveLength(1);
     expect(warnings[0].reason).toContain('User home directory');
   });
@@ -664,15 +658,11 @@ it('detects /etc/ssh subdirectory', () => {
   });
 
   it('detects id_ecdsa and id_dsa filenames', () => {
-    const ecdsa = detectSensitiveHostMounts([
-      { host: '/secret/keys/id_ecdsa', guest: '/mnt/key' }
-    ]);
+    const ecdsa = detectSensitiveHostMounts([{ host: '/secret/keys/id_ecdsa', guest: '/mnt/key' }]);
     expect(ecdsa).toHaveLength(1);
     expect(ecdsa[0].reason).toContain('ECDSA');
 
-    const dsa = detectSensitiveHostMounts([
-      { host: '/secret/keys/id_dsa', guest: '/mnt/key' }
-    ]);
+    const dsa = detectSensitiveHostMounts([{ host: '/secret/keys/id_dsa', guest: '/mnt/key' }]);
     expect(dsa).toHaveLength(1);
     expect(dsa[0].reason).toContain('DSA');
   });

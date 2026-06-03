@@ -44,7 +44,10 @@ export function detectSensitiveHostMounts(volumes: VmVolumeMount[]): SensitiveMo
 
     let matched = false;
     for (const { prefix, reason } of SENSITIVE_PREFIX_PATTERNS) {
-      if (hostPath === prefix || hostPath.startsWith(prefix.endsWith('/') ? prefix : prefix + '/')) {
+      if (
+        hostPath === prefix ||
+        hostPath.startsWith(prefix.endsWith('/') ? prefix : prefix + '/')
+      ) {
         warnings.push({ path: hostPath, reason });
         flagged.add(hostPath);
         matched = true;

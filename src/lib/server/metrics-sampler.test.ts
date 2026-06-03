@@ -46,21 +46,25 @@ function createMockSmolVmClient(
     openLogStream: async () => {
       throw new Error('not implemented');
     },
-  execMachine: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
-  downloadMachineFile: async () => ({ path: '/tmp/file', content: '', encoding: 'utf-8' as const }),
-  listMachineImages: async () => ({ machine: 'vm', images: [] }),
-  pullMachineImage: async () => ({
-    machine: 'vm',
-    image: {
-      reference: 'alpine:latest',
-      digest: 'sha256:abc',
-      size: 0,
-      architecture: 'amd64',
-      os: 'linux',
-      layerCount: 0
-    }
-  })
-};
+    execMachine: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+    downloadMachineFile: async () => ({
+      path: '/tmp/file',
+      content: '',
+      encoding: 'utf-8' as const
+    }),
+    listMachineImages: async () => ({ machine: 'vm', images: [] }),
+    pullMachineImage: async () => ({
+      machine: 'vm',
+      image: {
+        reference: 'alpine:latest',
+        digest: 'sha256:abc',
+        size: 0,
+        architecture: 'amd64',
+        os: 'linux',
+        layerCount: 0
+      }
+    })
+  };
 }
 
 // ---------------------------------------------------------------------------

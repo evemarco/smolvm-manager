@@ -196,10 +196,7 @@ function safeGuestFilePath(path: string): string {
     throw new SmolVmError(SMOLVM_ERROR_CODES.REQUEST_FAILED, 'Guest file path is required.', 400);
   }
 
-  const segments = trimmed
-    .replace(/^\/+/, '')
-    .split('/')
-    .filter(Boolean);
+  const segments = trimmed.replace(/^\/+/, '').split('/').filter(Boolean);
 
   if (segments.length === 0 || segments.some((segment) => segment === '..')) {
     throw new SmolVmError(SMOLVM_ERROR_CODES.REQUEST_FAILED, 'Guest file path is invalid.', 400);
@@ -256,7 +253,11 @@ function asMachineList(value: unknown): SmolVmMachineList {
 function asExecResponse(value: unknown): SmolVmExecResponse {
   const object = assertObject(value, 'SmolVM returned an invalid exec payload.');
   const exitCode = object.exitCode ?? object.exit_code;
-  if (typeof exitCode !== 'number' || typeof object.stdout !== 'string' || typeof object.stderr !== 'string') {
+  if (
+    typeof exitCode !== 'number' ||
+    typeof object.stdout !== 'string' ||
+    typeof object.stderr !== 'string'
+  ) {
     throw new SmolVmError(
       SMOLVM_ERROR_CODES.BAD_RESPONSE,
       'SmolVM exec payload is missing exitCode/stdout/stderr.',
