@@ -103,7 +103,7 @@ test.describe('metrics dashboard', () => {
     await page.getByRole('button', { name: 'View details for test-vm' }).click();
     await expect(page.getByRole('heading', { name: 'test-vm', level: 2 })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Metrics' }).click();
+    await page.getByRole('tab', { name: 'Metrics' }).click();
 
     await expect(page.getByText('Live metrics')).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Per-VM metrics are unavailable')).toBeVisible();
@@ -143,7 +143,7 @@ test.describe('metrics dashboard', () => {
     await expect(page.getByText('test-vm')).toBeVisible({ timeout: 10000 });
 
     await page.getByRole('button', { name: 'View details for test-vm' }).click();
-    await page.getByRole('button', { name: 'Metrics' }).click();
+    await page.getByRole('tab', { name: 'Metrics' }).click();
 
     await expect(page.getByText('Running VMs')).toBeVisible();
     await expect(page.getByText('Total VMs')).toBeVisible();
@@ -175,7 +175,7 @@ test.describe('metrics dashboard', () => {
     await expect(page.getByText('test-vm')).toBeVisible({ timeout: 10000 });
 
     await page.getByRole('button', { name: 'View details for test-vm' }).click();
-    await page.getByRole('button', { name: 'Metrics' }).click();
+    await page.getByRole('tab', { name: 'Metrics' }).click();
 
     await expect(page.getByText('SmolVM metrics are currently unavailable.')).toBeVisible({
       timeout: 5000
@@ -225,7 +225,7 @@ test.describe('metrics dashboard', () => {
     await expect(page.getByText('test-vm')).toBeVisible({ timeout: 10000 });
 
     await page.getByRole('button', { name: 'View details for test-vm' }).click();
-    await page.getByRole('button', { name: 'Metrics' }).click();
+    await page.getByRole('tab', { name: 'Metrics' }).click();
 
     await expect(page.getByText('CPU Usage History')).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Memory Usage History')).toBeVisible();
@@ -272,7 +272,7 @@ test.describe('metrics dashboard', () => {
     await expect(page.getByText('test-vm')).toBeVisible({ timeout: 10000 });
 
     await page.getByRole('button', { name: 'View details for test-vm' }).click();
-    await page.getByRole('button', { name: 'Metrics' }).click();
+    await page.getByRole('tab', { name: 'Metrics' }).click();
 
     await expect(page.getByText('Live metrics')).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Per-VM metrics are unavailable')).not.toBeVisible();

@@ -111,7 +111,7 @@ test.describe('logs and terminal tabs', () => {
     });
 
     await openStreamVmDetail(page);
-    await page.getByRole('button', { name: 'Logs' }).click();
+    await page.getByRole('tab', { name: 'Logs' }).click();
 
     await expect(page.getByText('Loading the last 200 lines')).toBeVisible();
     await expect(page.getByLabel('Log output')).toContainText('boot ok');
@@ -165,7 +165,7 @@ test.describe('logs and terminal tabs', () => {
     });
 
     await openStreamVmDetail(page);
-    await page.getByRole('button', { name: 'Terminal' }).click();
+    await page.getByRole('tab', { name: 'Terminal' }).click();
 
     await expect(page.getByText('authenticated manager proxy')).toBeVisible();
     await page.getByRole('button', { name: 'I understand, open terminal' }).click();

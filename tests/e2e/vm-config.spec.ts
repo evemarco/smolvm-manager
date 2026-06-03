@@ -273,7 +273,7 @@ net = true`;
     await expect(page.getByText('edit-vm')).toBeVisible();
 
     await page.getByRole('button', { name: 'View details for edit-vm' }).click();
-    await page.getByRole('button', { name: 'Config' }).click();
+    await page.getByRole('tab', { name: 'Config' }).click();
     await page.getByRole('button', { name: 'Edit Configuration' }).click();
 
     await expect(page.getByText('Editing')).toBeVisible();

@@ -189,12 +189,12 @@ test.describe('vm dashboard', () => {
     await expect(page.getByRole('heading', { name: 'detail-vm', level: 2 })).toBeVisible();
 
     // Overview tab should be active by default
-    await expect(page.getByRole('button', { name: 'Overview' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Overview' })).toBeVisible();
 
-    await expect(page.getByRole('button', { name: 'Config' })).toBeEnabled();
-    await expect(page.getByRole('button', { name: 'Logs' })).toBeEnabled();
-    await expect(page.getByRole('button', { name: 'Terminal' })).toBeEnabled();
-    await expect(page.getByRole('button', { name: 'Metrics' })).toBeEnabled();
+    await expect(page.getByRole('tab', { name: 'Config' })).toBeEnabled();
+    await expect(page.getByRole('tab', { name: 'Logs' })).toBeEnabled();
+    await expect(page.getByRole('tab', { name: 'Terminal' })).toBeEnabled();
+    await expect(page.getByRole('tab', { name: 'Metrics' })).toBeEnabled();
 
     // Back button should be visible
     await expect(page.getByRole('button', { name: 'Back to machine list' })).toBeVisible();
