@@ -3,7 +3,8 @@ import { collectAndStoreSample, getLiveSnapshot } from './metrics-sampler';
 import {
   createMockManagerStoreClient,
   resetMockManagerStore,
-  type ManagerStoreClient
+  type ManagerStoreClient,
+  STORE_ERROR_CODES
 } from './manager-store-client';
 import type { SmolVmClient } from './smolvm-client';
 
@@ -155,5 +156,78 @@ describe('getLiveSnapshot', () => {
     const snapshot = await getLiveSnapshot({ client });
 
     expect(snapshot!.summary.perVmUnavailable).toBe(false);
+  });
+});
+
+describe('service auth context', () => {
+  test('background metrics write succeeds with service token', async () => {
+    const originalToken = process.env.PYLON_SERVICE_TOKEN;
+    process.env.PYLON_SERVICE_TOKEN = 'test-service-token';
+    resetMockManagerStore();
+    const store = createMockManagerStoreClient({ enforcePolicies: true });
+    const client = createMockSmolVmClient();
+
+    try {
+      const sample = await collectAndStoreSample({ client, store });
+      expect(sample).not.toBeNull();
+      expect(sample!.cpu).toBe(2.5);
+
+      const samples = await store.listMetricsSamples();
+      expect(samples).toHaveLength(1);
+    } finally {
+      if (originalToken === undefined) {
+        delete process.env.PYLON_SERVICE_TOKEN;
+      } else {
+        process.env.PYLON_SERVICE_TOKEN = originalToken;
+      }
+    }
+  });
+
+  test('background metrics write fails without service token when policies are enforced', async () => {
+    const originalToken = process.env.PYLON_SERVICE_TOKEN;
+    delete process.env.PYLON_SERVICE_TOKEN;
+    resetMockManagerStore();
+    const store = createMockManagerStoreClient({ enforcePolicies: true });
+
+    try {
+      await expect(
+        store.insertMetricsSample({
+          cpu: 1,
+          memoryMb: 100,
+          diskGb: 10,
+          networkRxBytes: 1,
+          networkTxBytes: 1
+        })
+      ).rejects.toMatchObject({
+        code: STORE_ERROR_CODES.REQUEST_FAILED,
+        status: 403
+      });
+    } finally {
+      if (originalToken === undefined) {
+        delete process.env.PYLON_SERVICE_TOKEN;
+      } else {
+        process.env.PYLON_SERVICE_TOKEN = originalToken;
+      }
+    }
+  });
+
+  test('background metrics prune fails without service token when policies are enforced', async () => {
+    const originalToken = process.env.PYLON_SERVICE_TOKEN;
+    delete process.env.PYLON_SERVICE_TOKEN;
+    resetMockManagerStore();
+    const store = createMockManagerStoreClient({ enforcePolicies: true });
+
+    try {
+      await expect(store.pruneMetricsSamples(undefined, 2)).rejects.toMatchObject({
+        code: STORE_ERROR_CODES.REQUEST_FAILED,
+        status: 403
+      });
+    } finally {
+      if (originalToken === undefined) {
+        delete process.env.PYLON_SERVICE_TOKEN;
+      } else {
+        process.env.PYLON_SERVICE_TOKEN = originalToken;
+      }
+    }
   });
 });

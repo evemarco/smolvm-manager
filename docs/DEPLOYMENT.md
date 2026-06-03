@@ -42,6 +42,27 @@ This file documents a complete production deployment layout for [SmolVM Manager]
 - Admin credentials are set during first-run setup. Keep them secure.
 - The systemd unit uses `ProtectSystem=strict` and `NoNewPrivileges=true` for sandboxing.
 
+## Pylon Architecture Boundary
+
+The manager uses [Pylon](https://github.com/pylonsync/pylon) for authentication, durable metadata, and reactive UI sync. SvelteKit retains ownership of all SmolVM-facing routes.
+
+**Pylon owns:** auth/sessions, settings, saved VM configs, TOML snapshots, metrics history, audit events, UI preferences, RBAC policies, and reactive sync (dashboard view mode, saved configs, metrics samples up to 100).
+
+**SvelteKit owns:** SmolVM Unix socket proxying (`/api/smolvm/*`), SSE log streaming, terminal WebSocket, Docker Hub proxy, TOML utilities, and VM lifecycle orchestration.
+
+This split lets the manager store metadata in Pylon while keeping VM operations local and fast.
+
+## Rollout Controls
+
+Two environment variables control Pylon integration:
+
+- `PYLON_STORE_MODE` — Transport layer for metadata operations:
+  - `typed` (default): Uses Pylon typed queries and mutations. Recommended for production.
+  - `rest`: Falls back to direct REST calls. Useful for rollback if typed mode has issues.
+  - `mock`: In-memory mock store. Use only in tests.
+
+- `PYLON_SERVICE_TOKEN` — Server-side-only secret for background jobs. The metrics sampler and audit logger use this token to write data without a browser session. Never expose this to the client.
+
 ## Pylon Runtime Dependencies
 
 Some [Pylon](https://github.com/pylonsync/pylon) builds require `libxmlsec1-openssl.so.1` at runtime. If the service fails to start with a library error, install the corresponding system package (e.g., `libxmlsec1-openssl` on Debian/Ubuntu, `xmlsec1-openssl` on Fedora).

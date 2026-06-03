@@ -195,7 +195,11 @@ test('mock non-admin session has isAdmin false and no admin role', async () => {
   const client = createMockPylonAuthClient();
   await createMockUser('user@example.com', 'userpass123', false);
 
-  const result = await client.signIn('user@example.com', 'userpass123', new Request('http://localhost'));
+  const result = await client.signIn(
+    'user@example.com',
+    'userpass123',
+    new Request('http://localhost')
+  );
   expect(result.success).toBe(true);
   if (!result.success) return;
 
@@ -216,7 +220,11 @@ test('mock non-admin is denied admin-only metadata access via session', async ()
   const client = createMockPylonAuthClient();
   await createMockUser('user@example.com', 'userpass123', false);
 
-  const result = await client.signIn('user@example.com', 'userpass123', new Request('http://localhost'));
+  const result = await client.signIn(
+    'user@example.com',
+    'userpass123',
+    new Request('http://localhost')
+  );
   expect(result.success).toBe(true);
   if (!result.success) return;
 

@@ -1,4 +1,8 @@
-import { getManagerStoreClient, type ManagerStoreClient } from '$lib/server/manager-store-client';
+import {
+  getManagerStoreClient,
+  createServiceAuthContext,
+  type ManagerStoreClient
+} from '$lib/server/manager-store-client';
 import {
   getSmolVmClient,
   normalizeSmolVmError,
@@ -162,13 +166,17 @@ export async function auditTerminalEvent(options: AuditTerminalOptions): Promise
     ...(options.errorCode ? { errorCode: options.errorCode } : {})
   };
 
-  await (options.store ?? getManagerStoreClient()).insertAuditEvent({
-    eventType: 'terminal.session',
-    actorUserId: options.locals.admin?.id,
-    action: `terminal.${options.action}`,
-    details: JSON.stringify(details),
-    ipAddress: clientIp(options.request)
-  });
+  const serviceAuth = createServiceAuthContext();
+  await (options.store ?? getManagerStoreClient()).insertAuditEvent(
+    {
+      eventType: 'terminal.session',
+      actorUserId: options.locals.admin?.id,
+      action: `terminal.${options.action}`,
+      details: JSON.stringify(details),
+      ipAddress: clientIp(options.request)
+    },
+    serviceAuth ?? undefined
+  );
 }
 
 export async function createTerminalHandshakeResponse(

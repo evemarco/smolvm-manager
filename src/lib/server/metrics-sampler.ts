@@ -9,6 +9,7 @@
 import { getSmolVmClient, type SmolVmClient } from '$lib/server/smolvm-client';
 import {
   getManagerStoreClient,
+  createServiceAuthContext,
   type ManagerStoreClient,
   type MetricsSample
 } from '$lib/server/manager-store-client';
@@ -72,17 +73,21 @@ export async function collectAndStoreSample(options?: {
     const capacity = parseCapacityResponse(capacityRaw);
     if (!capacity) return null;
 
-    const sample = await store.insertMetricsSample({
-      machineName: undefined, // global sample
-      cpu: capacity.usedCpus,
-      memoryMb: capacity.usedMemoryMb,
-      diskGb: capacity.usedDiskGb,
-      networkRxBytes: 0, // SmolVM metrics don't expose per-VM network yet
-      networkTxBytes: 0
-    });
+    const serviceAuth = createServiceAuthContext();
+    const sample = await store.insertMetricsSample(
+      {
+        machineName: undefined, // global sample
+        cpu: capacity.usedCpus,
+        memoryMb: capacity.usedMemoryMb,
+        diskGb: capacity.usedDiskGb,
+        networkRxBytes: 0, // SmolVM metrics don't expose per-VM network yet
+        networkTxBytes: 0
+      },
+      serviceAuth ?? undefined
+    );
 
     // Prune old global samples in the background (don't await to keep latency low)
-    store.pruneMetricsSamples(undefined, maxGlobal).catch(() => {
+    store.pruneMetricsSamples(undefined, maxGlobal, serviceAuth ?? undefined).catch(() => {
       // Pruning failure is non-critical; log and continue
     });
 

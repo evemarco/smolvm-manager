@@ -1,4 +1,4 @@
-import { beforeEach, expect, test } from 'bun:test';
+import { beforeEach, expect, test, describe } from 'bun:test';
 import {
   createLogsSseResponse,
   createTerminalHandshakeResponse,
@@ -8,7 +8,8 @@ import {
 import {
   createMockManagerStoreClient,
   getMockAuditEvents,
-  resetMockManagerStore
+  resetMockManagerStore,
+  STORE_ERROR_CODES
 } from './manager-store-client';
 import { createSmolVmClient, type SmolVmStreamTransport } from './smolvm-client';
 import { createFrameParser, encodeWebSocketFrame } from './smolvm-terminal-ws';
@@ -192,4 +193,63 @@ test('terminal route reports upgrade limitation after authenticated metadata aud
       errorCode: 'WEBSOCKET_UPGRADE_UNAVAILABLE'
     })
   );
+});
+
+describe('service auth context', () => {
+  test('background audit write succeeds with service token', async () => {
+    const originalToken = process.env.PYLON_SERVICE_TOKEN;
+    process.env.PYLON_SERVICE_TOKEN = 'test-service-token';
+    resetMockManagerStore();
+    const store = createMockManagerStoreClient({ enforcePolicies: true });
+
+    try {
+      await auditTerminalEvent({
+        locals: locals(),
+        request: new Request('http://local/api'),
+        machineName: 'audit-vm',
+        action: 'open',
+        store
+      });
+
+      const events = getMockAuditEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0].action).toBe('terminal.open');
+    } finally {
+      if (originalToken === undefined) {
+        delete process.env.PYLON_SERVICE_TOKEN;
+      } else {
+        process.env.PYLON_SERVICE_TOKEN = originalToken;
+      }
+    }
+  });
+
+  test('background audit write fails without service token when policies are enforced', async () => {
+    const originalToken = process.env.PYLON_SERVICE_TOKEN;
+    delete process.env.PYLON_SERVICE_TOKEN;
+    resetMockManagerStore();
+    const store = createMockManagerStoreClient({ enforcePolicies: true });
+
+    try {
+      await expect(
+        auditTerminalEvent({
+          locals: locals(),
+          request: new Request('http://local/api'),
+          machineName: 'audit-vm',
+          action: 'open',
+          store
+        })
+      ).rejects.toMatchObject({
+        code: STORE_ERROR_CODES.REQUEST_FAILED,
+        status: 403
+      });
+
+      expect(getMockAuditEvents()).toHaveLength(0);
+    } finally {
+      if (originalToken === undefined) {
+        delete process.env.PYLON_SERVICE_TOKEN;
+      } else {
+        process.env.PYLON_SERVICE_TOKEN = originalToken;
+      }
+    }
+  });
 });

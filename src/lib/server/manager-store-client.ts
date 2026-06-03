@@ -39,6 +39,21 @@ export class ManagerStoreError extends Error {
   }
 }
 
+export type ServiceAuthContext = {
+  type: 'service';
+  token: string;
+};
+
+export function getServiceToken(): string | undefined {
+  return process.env.PYLON_SERVICE_TOKEN?.trim();
+}
+
+export function createServiceAuthContext(): ServiceAuthContext | undefined {
+  const token = getServiceToken();
+  if (!token) return undefined;
+  return { type: 'service', token };
+}
+
 export type ManagerSetting = {
   id: string;
   key: string;
@@ -128,27 +143,41 @@ export interface ManagerStoreClient {
   listTomlSnapshots(machineName?: string): Promise<TomlSnapshot[]>;
 
   // MetricsSample
-  insertMetricsSample(data: {
-    machineName?: string;
-    cpu: number;
-    memoryMb: number;
-    diskGb: number;
-    networkRxBytes: number;
-    networkTxBytes: number;
-  }): Promise<MetricsSample>;
+  insertMetricsSample(
+    data: {
+      machineName?: string;
+      cpu: number;
+      memoryMb: number;
+      diskGb: number;
+      networkRxBytes: number;
+      networkTxBytes: number;
+    },
+    authContext?: ServiceAuthContext
+  ): Promise<MetricsSample>;
   listMetricsSamples(machineName?: string, limit?: number): Promise<MetricsSample[]>;
-  pruneMetricsSamples(beforeDate?: string, maxCount?: number): Promise<number>;
+  pruneMetricsSamples(
+    beforeDate?: string,
+    maxCount?: number,
+    authContext?: ServiceAuthContext
+  ): Promise<number>;
 
   // AuditEvent
-  insertAuditEvent(data: {
-    eventType: string;
-    actorUserId?: string;
-    action?: string;
-    details?: string;
-    ipAddress?: string;
-  }): Promise<AuditEvent>;
+  insertAuditEvent(
+    data: {
+      eventType: string;
+      actorUserId?: string;
+      action?: string;
+      details?: string;
+      ipAddress?: string;
+    },
+    authContext?: ServiceAuthContext
+  ): Promise<AuditEvent>;
   listAuditEvents(limit?: number): Promise<AuditEvent[]>;
-  pruneAuditEvents(beforeDate?: string, maxCount?: number): Promise<number>;
+  pruneAuditEvents(
+    beforeDate?: string,
+    maxCount?: number,
+    authContext?: ServiceAuthContext
+  ): Promise<number>;
 
   // UiPreference
   getUiPreference(userId: string, key: string): Promise<UiPreference | null>;
@@ -167,6 +196,7 @@ type PylonFetchRaw = (
     method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
     json?: unknown;
     accept?: string;
+    headers?: Record<string, string>;
   }
 ) => Promise<Response>;
 
@@ -187,13 +217,15 @@ export function getManagerStoreMode(): ManagerStoreMode {
 
 async function pylonFetchJson(
   path: string,
-  init: RequestInit
+  init: RequestInit,
+  serviceToken?: string
 ): Promise<{ status: number; body: unknown }> {
   const baseUrl = getPylonBaseUrl();
   const url = `${baseUrl}${path}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    Accept: 'application/json'
+    Accept: 'application/json',
+    ...(serviceToken ? { 'X-Pylon-Service-Token': serviceToken } : {})
   };
 
   try {
@@ -222,7 +254,8 @@ async function pylonFetchJson(
 
 async function pylonTransportFetchJson(
   path: string,
-  init: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; json?: unknown }
+  init: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; json?: unknown },
+  serviceToken?: string
 ): Promise<{ status: number; body: unknown }> {
   const config = { baseUrl: getPylonBaseUrl() };
 
@@ -231,7 +264,8 @@ async function pylonTransportFetchJson(
     const response = await pylonFetchRaw(config, path, {
       method: init.method,
       json: init.json,
-      accept: 'application/json'
+      accept: 'application/json',
+      ...(serviceToken ? { headers: { 'X-Pylon-Service-Token': serviceToken } } : {})
     });
 
     let body: unknown = null;
@@ -265,15 +299,32 @@ type PylonListOptions = {
 };
 
 interface PylonEntityStore {
-  list(entity: PylonEntityName, options?: PylonListOptions): Promise<{ status: number; body: unknown }>;
-  get(entity: PylonEntityName, id: string): Promise<{ status: number; body: unknown }>;
-  create(entity: PylonEntityName, data: Record<string, unknown>): Promise<{ status: number; body: unknown }>;
+  list(
+    entity: PylonEntityName,
+    options?: PylonListOptions,
+    authContext?: ServiceAuthContext
+  ): Promise<{ status: number; body: unknown }>;
+  get(
+    entity: PylonEntityName,
+    id: string,
+    authContext?: ServiceAuthContext
+  ): Promise<{ status: number; body: unknown }>;
+  create(
+    entity: PylonEntityName,
+    data: Record<string, unknown>,
+    authContext?: ServiceAuthContext
+  ): Promise<{ status: number; body: unknown }>;
   update(
     entity: PylonEntityName,
     id: string,
-    data: Record<string, unknown>
+    data: Record<string, unknown>,
+    authContext?: ServiceAuthContext
   ): Promise<{ status: number; body: unknown }>;
-  delete(entity: PylonEntityName, id: string): Promise<{ status: number; body: unknown }>;
+  delete(
+    entity: PylonEntityName,
+    id: string,
+    authContext?: ServiceAuthContext
+  ): Promise<{ status: number; body: unknown }>;
 }
 
 function quoteFilterValue(value: string): string {
@@ -291,52 +342,92 @@ function entityCollectionPath(entity: PylonEntityName, options?: PylonListOption
 }
 
 class RestPylonEntityStore implements PylonEntityStore {
-  list(entity: PylonEntityName, options?: PylonListOptions) {
-    return pylonFetchJson(entityCollectionPath(entity, options), { method: 'GET' });
+  list(entity: PylonEntityName, options?: PylonListOptions, authContext?: ServiceAuthContext) {
+    return pylonFetchJson(
+      entityCollectionPath(entity, options),
+      { method: 'GET' },
+      authContext?.token
+    );
   }
 
-  get(entity: PylonEntityName, id: string) {
-    return pylonFetchJson(`/api/entities/${entity}/${id}`, { method: 'GET' });
+  get(entity: PylonEntityName, id: string, authContext?: ServiceAuthContext) {
+    return pylonFetchJson(`/api/entities/${entity}/${id}`, { method: 'GET' }, authContext?.token);
   }
 
-  create(entity: PylonEntityName, data: Record<string, unknown>) {
-    return pylonFetchJson(`/api/entities/${entity}`, {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
+  create(entity: PylonEntityName, data: Record<string, unknown>, authContext?: ServiceAuthContext) {
+    return pylonFetchJson(
+      `/api/entities/${entity}`,
+      { method: 'POST', body: JSON.stringify(data) },
+      authContext?.token
+    );
   }
 
-  update(entity: PylonEntityName, id: string, data: Record<string, unknown>) {
-    return pylonFetchJson(`/api/entities/${entity}/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data)
-    });
+  update(
+    entity: PylonEntityName,
+    id: string,
+    data: Record<string, unknown>,
+    authContext?: ServiceAuthContext
+  ) {
+    return pylonFetchJson(
+      `/api/entities/${entity}/${id}`,
+      { method: 'PATCH', body: JSON.stringify(data) },
+      authContext?.token
+    );
   }
 
-  delete(entity: PylonEntityName, id: string) {
-    return pylonFetchJson(`/api/entities/${entity}/${id}`, { method: 'DELETE' });
+  delete(entity: PylonEntityName, id: string, authContext?: ServiceAuthContext) {
+    return pylonFetchJson(
+      `/api/entities/${entity}/${id}`,
+      { method: 'DELETE' },
+      authContext?.token
+    );
   }
 }
 
 class TypedPylonEntityStore implements PylonEntityStore {
-  list(entity: PylonEntityName, options?: PylonListOptions) {
-    return pylonTransportFetchJson(entityCollectionPath(entity, options), { method: 'GET' });
+  list(entity: PylonEntityName, options?: PylonListOptions, authContext?: ServiceAuthContext) {
+    return pylonTransportFetchJson(
+      entityCollectionPath(entity, options),
+      { method: 'GET' },
+      authContext?.token
+    );
   }
 
-  get(entity: PylonEntityName, id: string) {
-    return pylonTransportFetchJson(`/api/entities/${entity}/${id}`, { method: 'GET' });
+  get(entity: PylonEntityName, id: string, authContext?: ServiceAuthContext) {
+    return pylonTransportFetchJson(
+      `/api/entities/${entity}/${id}`,
+      { method: 'GET' },
+      authContext?.token
+    );
   }
 
-  create(entity: PylonEntityName, data: Record<string, unknown>) {
-    return pylonTransportFetchJson(`/api/entities/${entity}`, { method: 'POST', json: data });
+  create(entity: PylonEntityName, data: Record<string, unknown>, authContext?: ServiceAuthContext) {
+    return pylonTransportFetchJson(
+      `/api/entities/${entity}`,
+      { method: 'POST', json: data },
+      authContext?.token
+    );
   }
 
-  update(entity: PylonEntityName, id: string, data: Record<string, unknown>) {
-    return pylonTransportFetchJson(`/api/entities/${entity}/${id}`, { method: 'PATCH', json: data });
+  update(
+    entity: PylonEntityName,
+    id: string,
+    data: Record<string, unknown>,
+    authContext?: ServiceAuthContext
+  ) {
+    return pylonTransportFetchJson(
+      `/api/entities/${entity}/${id}`,
+      { method: 'PATCH', json: data },
+      authContext?.token
+    );
   }
 
-  delete(entity: PylonEntityName, id: string) {
-    return pylonTransportFetchJson(`/api/entities/${entity}/${id}`, { method: 'DELETE' });
+  delete(entity: PylonEntityName, id: string, authContext?: ServiceAuthContext) {
+    return pylonTransportFetchJson(
+      `/api/entities/${entity}/${id}`,
+      { method: 'DELETE' },
+      authContext?.token
+    );
   }
 }
 
@@ -585,11 +676,15 @@ function createEntityBackedManagerStoreClient(store: PylonEntityStore): ManagerS
       return asList(body).map(asTomlSnapshot);
     },
 
-    async insertMetricsSample(data) {
-      const { status, body } = await store.create('MetricsSample', {
-        ...data,
-        sampledAt: new Date().toISOString()
-      });
+    async insertMetricsSample(data, authContext) {
+      const { status, body } = await store.create(
+        'MetricsSample',
+        {
+          ...data,
+          sampledAt: new Date().toISOString()
+        },
+        authContext
+      );
       if (status !== 200 && status !== 201) {
         throw new ManagerStoreError(
           STORE_ERROR_CODES.REQUEST_FAILED,
@@ -615,12 +710,12 @@ function createEntityBackedManagerStoreClient(store: PylonEntityStore): ManagerS
       return asList(body).map(asMetricsSample);
     },
 
-    async pruneMetricsSamples(beforeDate, maxCount) {
+    async pruneMetricsSamples(beforeDate, maxCount, authContext) {
       const samples = await this.listMetricsSamples();
-      let toDelete = samples;
+      let toDelete: MetricsSample[] = [];
       if (beforeDate) {
         const cutoff = new Date(beforeDate).getTime();
-        toDelete = toDelete.filter((s) => new Date(s.sampledAt).getTime() < cutoff);
+        toDelete = samples.filter((s) => new Date(s.sampledAt).getTime() < cutoff);
       }
       if (maxCount && samples.length > maxCount) {
         const sorted = [...samples].sort(
@@ -629,16 +724,20 @@ function createEntityBackedManagerStoreClient(store: PylonEntityStore): ManagerS
         toDelete = sorted.slice(0, samples.length - maxCount);
       }
       for (const s of toDelete) {
-        await store.delete('MetricsSample', s.id);
+        await store.delete('MetricsSample', s.id, authContext);
       }
       return toDelete.length;
     },
 
-    async insertAuditEvent(data) {
-      const { status, body } = await store.create('AuditEvent', {
-        ...data,
-        createdAt: new Date().toISOString()
-      });
+    async insertAuditEvent(data, authContext) {
+      const { status, body } = await store.create(
+        'AuditEvent',
+        {
+          ...data,
+          createdAt: new Date().toISOString()
+        },
+        authContext
+      );
       if (status !== 200 && status !== 201) {
         throw new ManagerStoreError(
           STORE_ERROR_CODES.REQUEST_FAILED,
@@ -661,12 +760,12 @@ function createEntityBackedManagerStoreClient(store: PylonEntityStore): ManagerS
       return asList(body).map(asAuditEvent);
     },
 
-    async pruneAuditEvents(beforeDate, maxCount) {
+    async pruneAuditEvents(beforeDate, maxCount, authContext) {
       const events = await this.listAuditEvents();
-      let toDelete = events;
+      let toDelete: AuditEvent[] = [];
       if (beforeDate) {
         const cutoff = new Date(beforeDate).getTime();
-        toDelete = toDelete.filter((e) => new Date(e.createdAt).getTime() < cutoff);
+        toDelete = events.filter((e) => new Date(e.createdAt).getTime() < cutoff);
       }
       if (maxCount && events.length > maxCount) {
         const sorted = [...events].sort(
@@ -675,7 +774,7 @@ function createEntityBackedManagerStoreClient(store: PylonEntityStore): ManagerS
         toDelete = sorted.slice(0, events.length - maxCount);
       }
       for (const e of toDelete) {
-        await store.delete('AuditEvent', e.id);
+        await store.delete('AuditEvent', e.id, authContext);
       }
       return toDelete.length;
     },
@@ -778,7 +877,21 @@ export function resetMockManagerStore(): void {
   mockIdCounter = 1;
 }
 
-export function createMockManagerStoreClient(): ManagerStoreClient {
+function checkServiceAuth(authContext: ServiceAuthContext | undefined): void {
+  const token = getServiceToken();
+  if (authContext?.type === 'service' && token && authContext.token === token) return;
+  throw new ManagerStoreError(
+    STORE_ERROR_CODES.REQUEST_FAILED,
+    'Policy denied: write requires admin or service auth.',
+    403
+  );
+}
+
+export function createMockManagerStoreClient(options?: {
+  enforcePolicies?: boolean;
+}): ManagerStoreClient {
+  const enforcePolicies = options?.enforcePolicies ?? false;
+
   return {
     async getSetting(key) {
       const found = mockSettings.find((s) => s.key === key);
@@ -853,7 +966,8 @@ export function createMockManagerStoreClient(): ManagerStoreClient {
       return list;
     },
 
-    async insertMetricsSample(data) {
+    async insertMetricsSample(data, authContext) {
+      if (enforcePolicies) checkServiceAuth(authContext);
       const now = new Date().toISOString();
       const created: MetricsSample = {
         id: nextId(),
@@ -880,11 +994,12 @@ export function createMockManagerStoreClient(): ManagerStoreClient {
       return list;
     },
 
-    async pruneMetricsSamples(beforeDate, maxCount) {
-      let toDelete = [...mockMetricsSamples];
+    async pruneMetricsSamples(beforeDate, maxCount, authContext) {
+      if (enforcePolicies) checkServiceAuth(authContext);
+      let toDelete: MetricsSample[] = [];
       if (beforeDate) {
         const cutoff = new Date(beforeDate).getTime();
-        toDelete = toDelete.filter((s) => new Date(s.sampledAt).getTime() < cutoff);
+        toDelete = mockMetricsSamples.filter((s) => new Date(s.sampledAt).getTime() < cutoff);
       }
       if (maxCount && mockMetricsSamples.length > maxCount) {
         const sorted = [...mockMetricsSamples].sort(
@@ -897,7 +1012,8 @@ export function createMockManagerStoreClient(): ManagerStoreClient {
       return toDelete.length;
     },
 
-    async insertAuditEvent(data) {
+    async insertAuditEvent(data, authContext) {
+      if (enforcePolicies) checkServiceAuth(authContext);
       const now = new Date().toISOString();
       const created: AuditEvent = {
         id: nextId(),
@@ -920,11 +1036,12 @@ export function createMockManagerStoreClient(): ManagerStoreClient {
       return list;
     },
 
-    async pruneAuditEvents(beforeDate, maxCount) {
-      let toDelete = [...mockAuditEvents];
+    async pruneAuditEvents(beforeDate, maxCount, authContext) {
+      if (enforcePolicies) checkServiceAuth(authContext);
+      let toDelete: AuditEvent[] = [];
       if (beforeDate) {
         const cutoff = new Date(beforeDate).getTime();
-        toDelete = toDelete.filter((e) => new Date(e.createdAt).getTime() < cutoff);
+        toDelete = mockAuditEvents.filter((e) => new Date(e.createdAt).getTime() < cutoff);
       }
       if (maxCount && mockAuditEvents.length > maxCount) {
         const sorted = [...mockAuditEvents].sort(

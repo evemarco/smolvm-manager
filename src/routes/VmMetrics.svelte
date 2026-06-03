@@ -9,6 +9,7 @@
     RefreshCw,
     Activity
   } from '@lucide/svelte';
+  import { createMetricsHistorySync, type MetricsHistorySync } from '$lib/client/pylon-sync';
   import type { MetricsSnapshot, MetricsSample } from '$lib/types';
 
   let { machineName }: { machineName: string } = $props();
@@ -18,6 +19,7 @@
   let loading = $state(true);
   let error: string | null = $state(null);
   let historyLoading = $state(false);
+  let metricsHistorySync: MetricsHistorySync | null = null;
 
   function formatNumber(value: number, decimals = 1): string {
     if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(decimals)}M`;
@@ -91,8 +93,8 @@
   async function fetchHistory() {
     historyLoading = true;
     const historyUrl = machineName
-      ? `/api/smolvm/metrics/history?machine=${encodeURIComponent(machineName)}&limit=60`
-      : '/api/smolvm/metrics/history?limit=60';
+      ? `/api/smolvm/metrics/history?machine=${encodeURIComponent(machineName)}&limit=100`
+      : '/api/smolvm/metrics/history?limit=100';
 
     try {
       const response = await fetch(historyUrl);
@@ -109,11 +111,23 @@
   }
 
   async function refresh() {
-    await Promise.all([fetchSnapshot(), fetchHistory()]);
+    await Promise.all([fetchSnapshot(), fetchHistory(), metricsHistorySync?.refresh()]);
   }
 
   onMount(() => {
+    metricsHistorySync = createMetricsHistorySync({
+      machineName,
+      limit: 100,
+      onSamples: (samples) => (history = samples)
+    });
     refresh();
+
+    void metricsHistorySync.start();
+
+    return () => {
+      metricsHistorySync?.stop();
+      metricsHistorySync = null;
+    };
   });
 </script>
 

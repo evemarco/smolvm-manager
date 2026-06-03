@@ -9,16 +9,25 @@
     Monitor,
     Cpu,
     MemoryStick,
-    HardDrive
+    HardDrive,
+    Bookmark
   } from '@lucide/svelte';
   import { appName } from '$lib/site';
   import { toasts } from '$lib/toast';
+  import {
+    createUiPreferenceSync,
+    createSavedVmConfigsSync,
+    type UiPreferenceSync,
+    type SavedVmConfigsSync,
+    type SavedVmConfig
+  } from '$lib/client/pylon-sync';
   import type {
     SmolVmMachine,
     ImagePickerSelection,
     VmConfig,
     VmFormMode,
-    CapacityData
+    CapacityData,
+    ViewMode
   } from '$lib/types';
   import ViewToggle from '$lib/components/ViewToggle.svelte';
   import ConfirmationModal from '$lib/components/ConfirmationModal.svelte';
@@ -30,14 +39,24 @@
   import VmTable from './VmTable.svelte';
   import VmDetail from './VmDetail.svelte';
 
-  let { data }: { data: { csrfToken: string | null } } = $props();
+  let {
+    data
+  }: {
+    data: {
+      csrfToken: string | null;
+      admin?: { id: string; email: string; name: string | null } | null;
+    };
+  } = $props();
 
   let machines: SmolVmMachine[] = $state([]);
   let loading = $state(true);
   let error: string | null = $state(null);
   let searchQuery = $state('');
   let statusFilter = $state('all');
-  let viewMode: 'cards' | 'table' = $state('cards');
+  let viewMode: ViewMode = $state('cards');
+  let viewModePreference: UiPreferenceSync<ViewMode> | null = null;
+  let savedConfigsSync: SavedVmConfigsSync | null = null;
+  let savedConfigs: SavedVmConfig[] = $state([]);
   let selectedMachine: SmolVmMachine | null = $state(null);
 
   // Confirmation modal state
@@ -111,6 +130,16 @@
     } catch {
       // Capacity is supplementary; don't surface errors
     }
+  }
+
+  function parseViewModePreference(valueJson: string): ViewMode {
+    const value = JSON.parse(valueJson);
+    return value === 'table' ? 'table' : 'cards';
+  }
+
+  function setViewMode(mode: ViewMode) {
+    viewMode = mode;
+    void viewModePreference?.setValue(mode);
   }
 
   async function lifecycleAction(
@@ -212,6 +241,18 @@
   function openCreateVm() {
     vmFormMode = 'create';
     vmFormInitialConfig = undefined;
+    vmFormExistingName = undefined;
+    vmFormOpen = true;
+  }
+
+  function useSavedConfig(saved: SavedVmConfig) {
+    vmFormMode = 'create';
+    try {
+      const parsed = JSON.parse(saved.configJson);
+      vmFormInitialConfig = { name: `${saved.machineName}-from-template`, ...parsed };
+    } catch {
+      vmFormInitialConfig = { name: `${saved.machineName}-from-template` };
+    }
     vmFormExistingName = undefined;
     vmFormOpen = true;
   }
@@ -364,8 +405,27 @@
   }
 
   onMount(() => {
+    viewModePreference = createUiPreferenceSync(data.admin?.id, 'dashboard.viewMode', {
+      defaultValue: viewMode,
+      parse: parseViewModePreference,
+      onValue: (mode) => (viewMode = mode)
+    });
+    void viewModePreference.start();
+
+    savedConfigsSync = createSavedVmConfigsSync({
+      onConfigs: (configs) => (savedConfigs = configs)
+    });
+    void savedConfigsSync.start();
+
     fetchMachines();
     fetchCapacity();
+
+    return () => {
+      viewModePreference?.stop();
+      viewModePreference = null;
+      savedConfigsSync?.stop();
+      savedConfigsSync = null;
+    };
   });
 </script>
 
@@ -500,6 +560,34 @@
     </div>
   {/if}
 
+  <!-- Saved Configs -->
+  {#if savedConfigs.length > 0}
+    <div class="rounded-xl border border-white/10 bg-slate-900/60">
+      <div class="flex items-center gap-2 px-4 py-3">
+        <Bookmark size={16} class="text-cyan-400" />
+        <h2 class="text-sm font-medium text-white">Saved Configs</h2>
+        <span class="rounded-full bg-cyan-500/10 px-2 py-0.5 text-xs text-cyan-300">
+          {savedConfigs.length}
+        </span>
+      </div>
+      <div class="border-t border-white/5 px-4 py-3">
+        <div class="flex flex-wrap gap-2">
+          {#each savedConfigs as cfg (cfg.id)}
+            <button
+              class="group flex items-center gap-2 rounded-lg border border-white/10 bg-slate-800/80 px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/40 hover:bg-slate-800 hover:text-white"
+              onclick={() => useSavedConfig(cfg)}
+              title="Create VM from &quot;{cfg.name}&quot;"
+            >
+              <Bookmark size={14} class="text-cyan-400/60 group-hover:text-cyan-400" />
+              <span class="max-w-[200px] truncate">{cfg.name}</span>
+              <span class="text-xs text-slate-500">{cfg.machineName}</span>
+            </button>
+          {/each}
+        </div>
+      </div>
+    </div>
+  {/if}
+
   <!-- Search & Filters -->
   <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
     <div class="flex flex-1 items-center gap-3">
@@ -521,7 +609,7 @@
         {/each}
       </select>
     </div>
-    <ViewToggle value={viewMode} onChange={(m) => (viewMode = m)} />
+    <ViewToggle value={viewMode} onChange={setViewMode} />
   </div>
 
   <!-- Content -->

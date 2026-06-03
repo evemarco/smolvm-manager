@@ -37,17 +37,19 @@ The manager listens on `MANAGER_HOST:MANAGER_PORT` (default `0.0.0.0:3000` in de
 
 ## Environment Variables
 
-| Variable           | Default                             | Description                                              |
-| ------------------ | ----------------------------------- | -------------------------------------------------------- |
-| `SMOLVM_SOCKET`    | `/tmp/smolvm.sock`                  | Unix socket path for SmolVM API                          |
-| `MANAGER_HOST`     | `0.0.0.0`                           | Manager bind address                                     |
-| `MANAGER_PORT`     | `3000` (dev) / `4173` (prod)        | Manager bind port                                        |
-| `PYLON_URL`        | `http://127.0.0.1:3001`             | Pylon HTTP endpoint                                      |
-| `PYLON_COMMAND`    | `pylon`                             | Pylon CLI command                                        |
-| `PYLON_APP_DB`     | `sqlite://./data/pylon-app.db`      | Pylon application database                               |
-| `PYLON_SESSION_DB` | `sqlite://./data/pylon-sessions.db` | Pylon session database                                   |
-| `PYLON_PID_FILE`   | `./.pylon/pylon.pid`                | Pylon process lock file                                  |
-| `DOCKER_HUB_TOKEN` | (empty)                             | Optional Docker Hub token for authenticated image search |
+| Variable              | Default                             | Description                                                 |
+| --------------------- | ----------------------------------- | ----------------------------------------------------------- |
+| `SMOLVM_SOCKET`       | `/tmp/smolvm.sock`                  | Unix socket path for SmolVM API                             |
+| `MANAGER_HOST`        | `0.0.0.0`                           | Manager bind address                                        |
+| `MANAGER_PORT`        | `3000` (dev) / `4173` (prod)        | Manager bind port                                           |
+| `PYLON_URL`           | `http://127.0.0.1:3001`             | Pylon HTTP endpoint                                         |
+| `PYLON_COMMAND`       | `pylon`                             | Pylon CLI command                                           |
+| `PYLON_APP_DB`        | `sqlite://./data/pylon-app.db`      | Pylon application database                                  |
+| `PYLON_SESSION_DB`    | `sqlite://./data/pylon-sessions.db` | Pylon session database                                      |
+| `PYLON_PID_FILE`      | `./.pylon/pylon.pid`                | Pylon process lock file                                     |
+| `DOCKER_HUB_TOKEN`    | (empty)                             | Optional Docker Hub token for authenticated image search    |
+| `PYLON_STORE_MODE`    | `typed`                             | Pylon store transport: `typed` (default), `rest`, or `mock` |
+| `PYLON_SERVICE_TOKEN` | (empty)                             | Server-side secret for background jobs (metrics, audit)     |
 
 See `.env.example` for the full template.
 
@@ -157,8 +159,29 @@ bun run test:e2e
 
 ## Architecture Notes
 
+### Pylon Boundary
+
+The codebase is split between [Pylon](https://github.com/pylonsync/pylon) (metadata, auth, policies) and SvelteKit (VM orchestration, streaming, proxies).
+
+**Pylon handles:**
+
+- Authentication and sessions (admin role, session validation via `hooks.server.ts`)
+- Durable metadata: settings, saved VM configs, TOML snapshots, metrics history, audit events, UI preferences
+- RBAC policies for metadata access
+- Reactive sync MVP for UI state (dashboard view mode, saved configs, metrics samples bounded to 100)
+
+**SvelteKit handles:**
+
+- SmolVM Unix socket proxying (`/api/smolvm/*` routes)
+- SSE log streaming and terminal WebSocket
+- Docker Hub proxy and TOML utilities
+- VM lifecycle orchestration (create, start, stop, restart, delete)
+
+This boundary is intentional. SmolVM operations remain SvelteKit-owned so the manager can proxy to the local Unix socket without routing through Pylon.
+
+### Other Notes
+
 - The manager never exposes the SmolVM Unix socket directly. All SmolVM access goes through authenticated `/api/smolvm/*` endpoints.
-- Pylon handles authentication and sessions. SvelteKit delegates session validation to Pylon via `hooks.server.ts`.
 - The terminal WebSocket endpoint (`/api/smolvm/machines/[name]/terminal/ws`) requires the reverse proxy to forward `Upgrade` and `Connection` headers.
 - PWA offline support works best under HTTPS or `localhost`. On plain HTTP LAN origins, the browser may restrict service worker installation.
 

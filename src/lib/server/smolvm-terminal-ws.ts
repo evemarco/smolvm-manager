@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { DEFAULT_SMOLVM_SOCKET } from './smolvm-client';
-import { getManagerStoreClient } from './manager-store-client';
+import { getManagerStoreClient, createServiceAuthContext } from './manager-store-client';
 import { getPylonAuthClient } from './pylon-auth-client';
 
 type TerminalAdmin = { id: string; email: string; name: string | null };
@@ -286,15 +286,19 @@ async function auditTerminal(
     ? forwardedFor[0]
     : forwardedFor?.split(',')[0]?.trim() || request.socket.remoteAddress || undefined;
 
-  await getManagerStoreClient().insertAuditEvent({
-    eventType: 'terminal.session',
-    actorUserId: admin.id,
-    action: `terminal.${action}`,
-    details: JSON.stringify({
-      machineName,
-      event: action,
-      ...(errorCode ? { errorCode } : {})
-    }),
-    ipAddress
-  });
+  const serviceAuth = createServiceAuthContext();
+  await getManagerStoreClient().insertAuditEvent(
+    {
+      eventType: 'terminal.session',
+      actorUserId: admin.id,
+      action: `terminal.${action}`,
+      details: JSON.stringify({
+        machineName,
+        event: action,
+        ...(errorCode ? { errorCode } : {})
+      }),
+      ipAddress
+    },
+    serviceAuth ?? undefined
+  );
 }
