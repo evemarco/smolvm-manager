@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { beforeEach, expect, test } from 'bun:test';
-import { requireSmolVmAdmin, placeholderStatus } from './smolvm-api';
+import { requireSmolVmAdmin } from './smolvm-api';
 import {
   DEFAULT_SMOLVM_SOCKET,
   SMOLVM_ERROR_CODES,
@@ -164,16 +164,77 @@ test('smolvm-client facade returns 401 before client access when unauthenticated
   expect(await response.json()).toEqual({ error: 'Unauthorized' });
 });
 
-test('smolvm-client placeholder API shape is explicit and not a proxy', async () => {
-  const client = createSmolVmClient({ transport: async () => response(200, { status: 'ok' }) });
-  const apiResponse = placeholderStatus(client.getImagesPlaceholder());
-
-  expect(apiResponse.status).toBe(501);
-  expect(await apiResponse.json()).toEqual({
-    available: false,
-    feature: 'images',
-    message: 'SmolVM images support is intentionally typed but not implemented in this task.'
+test('smolvm-client maps exec files and images to typed SmolVM machine endpoints', async () => {
+  const { calls, transport } = createCapturingTransport({
+    exitCode: 0,
+    stdout: 'ok\n',
+    stderr: ''
   });
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  const exec = await client.execMachine('vm one', {
+    command: ['echo', 'ok'],
+    timeoutSecs: 5,
+    env: [{ name: 'A', value: 'B' }]
+  });
+
+  expect(exec).toEqual({ exitCode: 0, stdout: 'ok\n', stderr: '' });
+  expect(calls).toEqual([
+    {
+      socketPath: '/tmp/test.sock',
+      options: {
+        method: 'POST',
+        path: '/api/v1/machines/vm%20one/exec',
+        body: { command: ['echo', 'ok'], timeoutSecs: 5, env: [{ name: 'A', value: 'B' }] }
+      }
+    }
+  ]);
+});
+
+test('smolvm-client downloads guest files through the machine file endpoint', async () => {
+  const { calls, transport } = createCapturingTransport('hello');
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  const file = await client.downloadMachineFile('vm/files', '/etc/hosts');
+
+  expect(file).toEqual({ path: '/etc/hosts', content: 'hello', encoding: 'utf-8' });
+  expect(calls[0]).toEqual({
+    socketPath: '/tmp/test.sock',
+    options: {
+      method: 'GET',
+      path: '/api/v1/machines/vm%2Ffiles/files/etc/hosts',
+      responseType: 'text'
+    }
+  });
+});
+
+test('smolvm-client maps image list and pull to machine-scoped SmolVM endpoints', async () => {
+  const image = {
+    reference: 'alpine:latest',
+    digest: 'sha256:abc',
+    size: 123,
+    architecture: 'amd64',
+    os: 'linux',
+    layerCount: 2
+  };
+  const calls: Array<{ socketPath: string; options: SmolVmRequestOptions }> = [];
+  const transport: SmolVmTransport = async (socketPath, options) => {
+    calls.push({ socketPath, options });
+    if (options.method === 'GET') return response(200, { images: [image] });
+    return response(200, { image });
+  };
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  await expect(client.listMachineImages('vm')).resolves.toEqual({ machine: 'vm', images: [image] });
+  await expect(client.pullMachineImage('vm', { image: 'alpine:latest' })).resolves.toEqual({
+    machine: 'vm',
+    image
+  });
+
+  expect(calls.map((call) => call.options)).toEqual([
+    { method: 'GET', path: '/api/v1/machines/vm/images' },
+    { method: 'POST', path: '/api/v1/machines/vm/images/pull', body: { image: 'alpine:latest' } }
+  ]);
 });
 
 if (existsSync(DEFAULT_SMOLVM_SOCKET)) {

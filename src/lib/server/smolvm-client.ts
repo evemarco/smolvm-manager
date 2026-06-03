@@ -57,14 +57,60 @@ export type SmolVmMachineList = {
 
 export type SmolVmActionResult = Record<string, unknown> | null;
 
-export type SmolVmPlaceholder = {
-  available: false;
-  feature: 'exec' | 'files' | 'logs' | 'images' | 'update';
-  message: string;
+export type SmolVmExecEnvVar = {
+  name: string;
+  value: string;
+};
+
+export type SmolVmExecRequest = {
+  command: string[];
+  env?: SmolVmExecEnvVar[];
+  workdir?: string;
+  timeoutSecs?: number;
+  stdin?: string;
+  background?: boolean;
+};
+
+export type SmolVmExecResponse = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+};
+
+export type SmolVmFileDownload = {
+  path: string;
+  content: string;
+  encoding: 'utf-8';
+};
+
+export type SmolVmImageInfo = {
+  reference: string;
+  digest: string;
+  size: number;
+  architecture: string;
+  os: string;
+  layerCount: number;
+};
+
+export type SmolVmImageList = {
+  machine: string;
+  images: SmolVmImageInfo[];
+};
+
+export type SmolVmPullImageRequest = {
+  image: string;
+  ociPlatform?: string;
+  proxy?: string;
+  noProxy?: string;
+};
+
+export type SmolVmPullImageResponse = {
+  machine: string;
+  image: SmolVmImageInfo;
 };
 
 export type SmolVmRequestOptions = {
-  method: 'GET' | 'POST' | 'DELETE' | 'PATCH';
+  method: 'GET' | 'POST' | 'DELETE' | 'PATCH' | 'PUT';
   path: string;
   body?: unknown;
   responseType?: 'json' | 'text';
@@ -126,11 +172,10 @@ export type SmolVmClient = {
   stopMachine(name: string): Promise<SmolVmActionResult>;
   deleteMachine(name: string): Promise<SmolVmActionResult>;
   openLogStream(name: string, options: SmolVmLogStreamOptions): Promise<SmolVmStreamResponse>;
-  getExecPlaceholder(name: string): SmolVmPlaceholder;
-  getFilesPlaceholder(name: string): SmolVmPlaceholder;
-  getLogsPlaceholder(name: string): SmolVmPlaceholder;
-  getImagesPlaceholder(): SmolVmPlaceholder;
-  getUpdatePlaceholder(): SmolVmPlaceholder;
+  execMachine(name: string, body: SmolVmExecRequest): Promise<SmolVmExecResponse>;
+  downloadMachineFile(name: string, path: string): Promise<SmolVmFileDownload>;
+  listMachineImages(name: string): Promise<SmolVmImageList>;
+  pullMachineImage(name: string, body: SmolVmPullImageRequest): Promise<SmolVmPullImageResponse>;
 };
 
 function getConfiguredSocketPath(): string {
@@ -143,6 +188,24 @@ function safeMachinePath(name: string): string {
     throw new SmolVmError(SMOLVM_ERROR_CODES.REQUEST_FAILED, 'Machine name is required.', 400);
   }
   return encodeURIComponent(trimmed);
+}
+
+function safeGuestFilePath(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed || trimmed.includes('\0')) {
+    throw new SmolVmError(SMOLVM_ERROR_CODES.REQUEST_FAILED, 'Guest file path is required.', 400);
+  }
+
+  const segments = trimmed
+    .replace(/^\/+/, '')
+    .split('/')
+    .filter(Boolean);
+
+  if (segments.length === 0 || segments.some((segment) => segment === '..')) {
+    throw new SmolVmError(SMOLVM_ERROR_CODES.REQUEST_FAILED, 'Guest file path is invalid.', 400);
+  }
+
+  return segments.map(encodeURIComponent).join('/');
 }
 
 function parseJson(text: string, status: number): unknown {
@@ -187,6 +250,73 @@ function asMachineList(value: unknown): SmolVmMachineList {
   return {
     ...object,
     machines: object.machines.map(asMachine)
+  };
+}
+
+function asExecResponse(value: unknown): SmolVmExecResponse {
+  const object = assertObject(value, 'SmolVM returned an invalid exec payload.');
+  const exitCode = object.exitCode ?? object.exit_code;
+  if (typeof exitCode !== 'number' || typeof object.stdout !== 'string' || typeof object.stderr !== 'string') {
+    throw new SmolVmError(
+      SMOLVM_ERROR_CODES.BAD_RESPONSE,
+      'SmolVM exec payload is missing exitCode/stdout/stderr.',
+      502
+    );
+  }
+  return {
+    exitCode,
+    stdout: object.stdout,
+    stderr: object.stderr
+  };
+}
+
+function asImageInfo(value: unknown): SmolVmImageInfo {
+  const object = assertObject(value, 'SmolVM returned an invalid image payload.');
+  const layerCount = object.layerCount ?? object.layer_count;
+  if (
+    typeof object.reference !== 'string' ||
+    typeof object.digest !== 'string' ||
+    typeof object.size !== 'number' ||
+    typeof object.architecture !== 'string' ||
+    typeof object.os !== 'string' ||
+    typeof layerCount !== 'number'
+  ) {
+    throw new SmolVmError(
+      SMOLVM_ERROR_CODES.BAD_RESPONSE,
+      'SmolVM image payload is missing required fields.',
+      502
+    );
+  }
+  return {
+    reference: object.reference,
+    digest: object.digest,
+    size: object.size,
+    architecture: object.architecture,
+    os: object.os,
+    layerCount
+  };
+}
+
+function asImageList(machine: string, value: unknown): SmolVmImageList {
+  const object = assertObject(value, 'SmolVM returned an invalid image list.');
+  if (!Array.isArray(object.images)) {
+    throw new SmolVmError(
+      SMOLVM_ERROR_CODES.BAD_RESPONSE,
+      'SmolVM image list is missing images[].',
+      502
+    );
+  }
+  return {
+    machine,
+    images: object.images.map(asImageInfo)
+  };
+}
+
+function asPullImageResponse(machine: string, value: unknown): SmolVmPullImageResponse {
+  const object = assertObject(value, 'SmolVM returned an invalid image pull payload.');
+  return {
+    machine,
+    image: asImageInfo(object.image)
   };
 }
 
@@ -323,14 +453,6 @@ function parseJsonOrText(text: string): unknown {
   }
 }
 
-function placeholder(feature: SmolVmPlaceholder['feature']): SmolVmPlaceholder {
-  return {
-    available: false,
-    feature,
-    message: `SmolVM ${feature} support is intentionally typed but not implemented in this task.`
-  };
-}
-
 export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmClient {
   const socketPath = options.socketPath ?? getConfiguredSocketPath();
   const transport = options.transport ?? requestOverUnixSocket;
@@ -457,11 +579,54 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
       );
     },
 
-    getExecPlaceholder: () => placeholder('exec'),
-    getFilesPlaceholder: () => placeholder('files'),
-    getLogsPlaceholder: () => placeholder('logs'),
-    getImagesPlaceholder: () => placeholder('images'),
-    getUpdatePlaceholder: () => placeholder('update')
+    execMachine(name, body) {
+      return callSmolVm(
+        socketPath,
+        transport,
+        {
+          method: 'POST',
+          path: `/api/v1/machines/${safeMachinePath(name)}/exec`,
+          body
+        },
+        asExecResponse
+      );
+    },
+
+    downloadMachineFile(name, path) {
+      const guestPath = safeGuestFilePath(path);
+      return callSmolVm(
+        socketPath,
+        transport,
+        {
+          method: 'GET',
+          path: `/api/v1/machines/${safeMachinePath(name)}/files/${guestPath}`,
+          responseType: 'text'
+        },
+        (value) => ({ path: `/${guestPath}`, content: String(value), encoding: 'utf-8' })
+      );
+    },
+
+    listMachineImages(name) {
+      return callSmolVm(
+        socketPath,
+        transport,
+        { method: 'GET', path: `/api/v1/machines/${safeMachinePath(name)}/images` },
+        (value) => asImageList(name, value)
+      );
+    },
+
+    pullMachineImage(name, body) {
+      return callSmolVm(
+        socketPath,
+        transport,
+        {
+          method: 'POST',
+          path: `/api/v1/machines/${safeMachinePath(name)}/images/pull`,
+          body
+        },
+        (value) => asPullImageResponse(name, value)
+      );
+    }
   };
 }
 
