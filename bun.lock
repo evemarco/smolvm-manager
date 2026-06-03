@@ -6,9 +6,9 @@
       "name": "smolvm-manager",
       "dependencies": {
         "@lucide/svelte": "^1.17.0",
-        "@pylonsync/functions": "^0.3.225",
-        "@pylonsync/sdk": "^0.3.225",
-        "@pylonsync/sync": "^0.3.225",
+        "@pylonsync/functions": "^0.3.234",
+        "@pylonsync/sdk": "^0.3.234",
+        "@pylonsync/sync": "^0.3.234",
       },
       "devDependencies": {
         "@eslint/js": "^10.0.1",
@@ -276,11 +276,11 @@
 
     "@polka/url": ["@polka/url@1.0.0-next.29", "", {}, "sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww=="],
 
-    "@pylonsync/functions": ["@pylonsync/functions@0.3.225", "", { "peerDependencies": { "bun-types": "*" }, "optionalPeers": ["bun-types"], "bin": { "pylon-functions-runtime": "src/runtime.ts" } }, "sha512-MJjjOQgBY9ZgG2+n0hmsi+CGA6xrgoInZpuCIZVvffeGECjO7963VONRR5y4AH3fWbsXp/n3q2zJ2KApVcwlNQ=="],
+    "@pylonsync/functions": ["@pylonsync/functions@0.3.234", "", { "peerDependencies": { "bun-types": "*" }, "optionalPeers": ["bun-types"], "bin": { "pylon-functions-runtime": "src/runtime.ts" } }, "sha512-xjAsvFj9QE+AA2exAvaLIgjWpp+oaG88u83Bmn9Wq1c8OpEqR5qTrA6FGsSjyd6BO9ejYpL04xY1wUmyV0Og+w=="],
 
-    "@pylonsync/sdk": ["@pylonsync/sdk@0.3.225", "", {}, "sha512-YlRwk6wHHY5nyCqicIFODFUO7LChVc8IbciFQWBtjVCRXkQruhv5lSbjDpI0KQNXIAAW47fWrLn79eGnE4zYwQ=="],
+    "@pylonsync/sdk": ["@pylonsync/sdk@0.3.234", "", {}, "sha512-nfTH+kOzTO0+f88iamkwgJeNaMz/nVvl13ojskx5Kvz1r38MbKoUER9N2QYSC+JblRLQ9sZTC0V9y7kf0WciTg=="],
 
-    "@pylonsync/sync": ["@pylonsync/sync@0.3.225", "", {}, "sha512-hg7aHN1JEzb/WKDuMU9S8N81+DV3ASFTiVIzovwg8zvqpb0jT6L+PRDkhJ4vA36K7ug7oB7fXft37abtkgM1hw=="],
+    "@pylonsync/sync": ["@pylonsync/sync@0.3.234", "", {}, "sha512-ZT6k+rq+9RRzbqB43BG9PJdaZOopK51cNVjS6qf+EMoCI00D1R/YcxVcCx97kRqt6J5ne8kMEFLXQtynYnloKg=="],
 
     "@rolldown/binding-android-arm64": ["@rolldown/binding-android-arm64@1.0.3", "", { "os": "android", "cpu": "arm64" }, "sha512-454rs7jHngixp/NMxd5srYD57OnzSlZ/eFTETjORQHLwJG1lRtmNOJcBerZlfu4GjKqeq8aCCIQrMdHyhI51Hw=="],
 

@@ -46,8 +46,8 @@
   },
   "dependencies": {
     "@lucide/svelte": "^1.17.0",
-    "@pylonsync/functions": "^0.3.225",
-    "@pylonsync/sdk": "^0.3.225",
-    "@pylonsync/sync": "^0.3.225"
+    "@pylonsync/functions": "^0.3.234",
+    "@pylonsync/sdk": "^0.3.234",
+    "@pylonsync/sync": "^0.3.234"
   }
 }
