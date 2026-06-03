@@ -13,6 +13,7 @@
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import VmLogs from './VmLogs.svelte';
   import VmTerminal from './VmTerminal.svelte';
+  import VmMetrics from './VmMetrics.svelte';
   import type { SmolVmMachine, TabId } from '$lib/types';
 
   let {
@@ -47,12 +48,10 @@
     { id: 'config', label: 'Config' },
     { id: 'logs', label: 'Logs' },
     { id: 'terminal', label: 'Terminal' },
-    { id: 'metrics', label: 'Metrics', disabled: true }
+    { id: 'metrics', label: 'Metrics' }
   ];
 
-  const placeholderMessages: Record<string, string> = {
-    metrics: 'Live metrics and history charts will be available in a future update.'
-  };
+  const placeholderMessages: Record<string, string> = {};
 </script>
 
 <div class="flex flex-col gap-6">
@@ -194,6 +193,8 @@
       <VmLogs machineName={machine.name} />
     {:else if activeTab === 'terminal'}
       <VmTerminal machineName={machine.name} />
+    {:else if activeTab === 'metrics'}
+      <VmMetrics machineName={machine.name} />
     {:else}
       <div class="flex flex-col items-center justify-center gap-3 py-12">
         <p class="text-sm text-slate-400">{placeholderMessages[activeTab] ?? 'Coming soon.'}</p>

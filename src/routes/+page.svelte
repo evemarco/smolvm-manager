@@ -1,9 +1,25 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Plus, Search, RefreshCw, Loader2, AlertCircle, Monitor } from '@lucide/svelte';
+  import {
+    Plus,
+    Search,
+    RefreshCw,
+    Loader2,
+    AlertCircle,
+    Monitor,
+    Cpu,
+    MemoryStick,
+    HardDrive
+  } from '@lucide/svelte';
   import { appName } from '$lib/site';
   import { toasts } from '$lib/toast';
-  import type { SmolVmMachine, ImagePickerSelection, VmConfig, VmFormMode } from '$lib/types';
+  import type {
+    SmolVmMachine,
+    ImagePickerSelection,
+    VmConfig,
+    VmFormMode,
+    CapacityData
+  } from '$lib/types';
   import ViewToggle from '$lib/components/ViewToggle.svelte';
   import ConfirmationModal from '$lib/components/ConfirmationModal.svelte';
   import ToastContainer from '$lib/components/ToastContainer.svelte';
@@ -35,6 +51,9 @@
   // Action loading states
   let actionLoading: Record<string, boolean> = $state({});
   let pickerOpen = $state(false);
+
+  // Capacity summary
+  let capacity: CapacityData | null = $state(null);
 
   // VM config form state
   let vmFormOpen = $state(false);
@@ -80,6 +99,17 @@
       error = err instanceof Error ? err.message : 'Failed to load machines';
     } finally {
       loading = false;
+    }
+  }
+
+  async function fetchCapacity() {
+    try {
+      const response = await fetch('/api/smolvm/capacity');
+      if (response.ok) {
+        capacity = await response.json();
+      }
+    } catch {
+      // Capacity is supplementary; don't surface errors
     }
   }
 
@@ -333,7 +363,10 @@
     }
   }
 
-  onMount(fetchMachines);
+  onMount(() => {
+    fetchMachines();
+    fetchCapacity();
+  });
 </script>
 
 <svelte:head>
@@ -417,6 +450,51 @@
       </button>
     </div>
   </header>
+
+  <!-- Capacity summary -->
+  {#if capacity}
+    <div class="grid grid-cols-3 gap-3 sm:gap-4">
+      <div
+        class="flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2.5"
+      >
+        <Cpu size={16} class="text-cyan-400" />
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-xs text-slate-500">CPU</p>
+          <p class="text-sm font-medium text-white">
+            {capacity.usedCpus.toFixed(1)}
+            <span class="text-slate-400">/ {capacity.allocatedCpus}</span>
+          </p>
+        </div>
+      </div>
+      <div
+        class="flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2.5"
+      >
+        <MemoryStick size={16} class="text-violet-400" />
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-xs text-slate-500">Memory</p>
+          <p class="text-sm font-medium text-white">
+            {capacity.usedMemoryMb >= 1024
+              ? `${(capacity.usedMemoryMb / 1024).toFixed(1)} GB`
+              : `${capacity.usedMemoryMb} MB`}
+            <span class="text-slate-400"
+              >/ {capacity.allocatedMemoryMb >= 1024
+                ? `${(capacity.allocatedMemoryMb / 1024).toFixed(1)} GB`
+                : `${capacity.allocatedMemoryMb} MB`}</span
+            >
+          </p>
+        </div>
+      </div>
+      <div
+        class="flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2.5"
+      >
+        <HardDrive size={16} class="text-emerald-400" />
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-xs text-slate-500">Disk</p>
+          <p class="text-sm font-medium text-white">{capacity.usedDiskGb.toFixed(1)} GB</p>
+        </div>
+      </div>
+    </div>
+  {/if}
 
   <!-- Search & Filters -->
   <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
