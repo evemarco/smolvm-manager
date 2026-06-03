@@ -1,4 +1,4 @@
-import { buildManifest, entity, field, auth, query, action } from '@pylonsync/sdk';
+import { buildManifest, entity, field, auth, query, action, policy } from '@pylonsync/sdk';
 
 const User = entity('User', {
   email: field.string().unique(),
@@ -149,6 +149,41 @@ const managerMutations = [
   })
 ];
 
+const managerPolicies = [
+  policy({
+    entity: 'ManagerSetting',
+    allowRead: "auth.hasRole('admin')",
+    allowWrite: "auth.hasRole('admin')"
+  }),
+  policy({
+    entity: 'SavedVmConfig',
+    allowRead: "auth.hasRole('admin')",
+    allowWrite: "auth.hasRole('admin')"
+  }),
+  policy({
+    entity: 'TomlSnapshot',
+    allowRead: "auth.hasRole('admin')",
+    allowWrite: "auth.hasRole('admin')"
+  }),
+  policy({
+    entity: 'MetricsSample',
+    allowRead: "auth.hasRole('admin')",
+    allowWrite: "auth.hasRole('admin')"
+  }),
+  policy({
+    entity: 'AuditEvent',
+    allowRead: "auth.hasRole('admin')",
+    allowInsert: "auth.hasRole('admin')",
+    allowUpdate: "auth.hasRole('admin')",
+    allowDelete: "auth.hasRole('admin')"
+  }),
+  policy({
+    entity: 'UiPreference',
+    allowRead: "auth.userId == data.userId || auth.hasRole('admin')",
+    allowWrite: "auth.userId == data.userId || auth.hasRole('admin')"
+  })
+];
+
 export default buildManifest({
   name: 'smolvm-manager',
   version: '0.0.1',
@@ -164,7 +199,7 @@ export default buildManifest({
   routes: [],
   queries: managerQueries,
   actions: managerMutations,
-  policies: [],
+  policies: managerPolicies,
   auth: auth({
     user: {
       entity: 'User',

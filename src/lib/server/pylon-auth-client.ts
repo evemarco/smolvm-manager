@@ -488,6 +488,23 @@ export function getMockSessions(): MockSession[] {
   return [...mockSessions];
 }
 
+export async function createMockUser(
+  email: string,
+  password: string,
+  isAdmin: boolean
+): Promise<PylonUser> {
+  const id = String(mockIdCounter++);
+  const passwordHash = await hashPassword(password);
+  mockUsers.push({
+    id,
+    email,
+    name: email,
+    passwordHash,
+    isAdmin
+  });
+  return { id, email, name: email, isAdmin };
+}
+
 export function generateCsrfToken(): string {
   return crypto.randomUUID().replace(/-/g, '');
 }

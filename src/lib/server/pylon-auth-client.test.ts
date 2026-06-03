@@ -1,6 +1,7 @@
 import { expect, test, beforeEach } from 'bun:test';
 import {
   createMockPylonAuthClient,
+  createMockUser,
   resetMockPylonAuth,
   getMockAuditEvents,
   getMockUsers,
@@ -170,4 +171,63 @@ test('mock getAdminUser returns first admin', async () => {
   expect(admin).not.toBeNull();
   expect(admin!.email).toBe('admin');
   expect(admin!.isAdmin).toBe(true);
+});
+
+test('mock admin session has isAdmin true and admin role', async () => {
+  const client = createMockPylonAuthClient();
+  const signup = await client.signUp('admin', 'securepass123', new Request('http://localhost'));
+  expect(signup.success).toBe(true);
+  if (!signup.success) return;
+
+  const cookie = signup.setCookie!;
+  const sessionToken = cookie.match(/pylon_session=([^;]+)/)![1];
+  const request = new Request('http://localhost', {
+    headers: { Cookie: `pylon_session=${sessionToken}` }
+  });
+
+  const session = await client.getSession(request);
+  expect(session).not.toBeNull();
+  expect(session!.isAdmin).toBe(true);
+  expect(session!.roles).toContain('admin');
+});
+
+test('mock non-admin session has isAdmin false and no admin role', async () => {
+  const client = createMockPylonAuthClient();
+  await createMockUser('user@example.com', 'userpass123', false);
+
+  const result = await client.signIn('user@example.com', 'userpass123', new Request('http://localhost'));
+  expect(result.success).toBe(true);
+  if (!result.success) return;
+
+  const cookie = result.setCookie!;
+  const sessionToken = cookie.match(/pylon_session=([^;]+)/)![1];
+  const request = new Request('http://localhost', {
+    headers: { Cookie: `pylon_session=${sessionToken}` }
+  });
+
+  const session = await client.getSession(request);
+  expect(session).not.toBeNull();
+  expect(session!.isAdmin).toBe(false);
+  expect(session!.roles).not.toContain('admin');
+  expect(session!.userId).toBe(result.user.id);
+});
+
+test('mock non-admin is denied admin-only metadata access via session', async () => {
+  const client = createMockPylonAuthClient();
+  await createMockUser('user@example.com', 'userpass123', false);
+
+  const result = await client.signIn('user@example.com', 'userpass123', new Request('http://localhost'));
+  expect(result.success).toBe(true);
+  if (!result.success) return;
+
+  const cookie = result.setCookie!;
+  const sessionToken = cookie.match(/pylon_session=([^;]+)/)![1];
+  const request = new Request('http://localhost', {
+    headers: { Cookie: `pylon_session=${sessionToken}` }
+  });
+
+  const session = await client.getSession(request);
+  expect(session).not.toBeNull();
+  expect(session!.isAdmin).toBe(false);
+  expect(await client.getAdminUser()).toBeNull();
 });

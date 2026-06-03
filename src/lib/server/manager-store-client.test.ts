@@ -257,6 +257,43 @@ describe('manifest', () => {
     expect(fieldNames).toContain('createdAt');
   });
 
+  test('includes policies for all manager metadata entities', () => {
+    const policyEntities = manifest.policies.map((p) => p.entity);
+    expect(policyEntities).toContain('ManagerSetting');
+    expect(policyEntities).toContain('SavedVmConfig');
+    expect(policyEntities).toContain('TomlSnapshot');
+    expect(policyEntities).toContain('MetricsSample');
+    expect(policyEntities).toContain('AuditEvent');
+    expect(policyEntities).toContain('UiPreference');
+    expect(manifest.policies).toHaveLength(6);
+  });
+
+  test('admin-only entities require admin role for read and write', () => {
+    const adminOnlyEntities = ['ManagerSetting', 'SavedVmConfig', 'TomlSnapshot', 'MetricsSample'];
+    for (const entityName of adminOnlyEntities) {
+      const p = manifest.policies.find((pol) => pol.entity === entityName);
+      expect(p).toBeDefined();
+      expect(p!.allowRead).toBe("auth.hasRole('admin')");
+      expect(p!.allowWrite).toBe("auth.hasRole('admin')");
+    }
+  });
+
+  test('AuditEvent policy restricts all operations to admin', () => {
+    const p = manifest.policies.find((pol) => pol.entity === 'AuditEvent');
+    expect(p).toBeDefined();
+    expect(p!.allowRead).toBe("auth.hasRole('admin')");
+    expect(p!.allowInsert).toBe("auth.hasRole('admin')");
+    expect(p!.allowUpdate).toBe("auth.hasRole('admin')");
+    expect(p!.allowDelete).toBe("auth.hasRole('admin')");
+  });
+
+  test('UiPreference policy scopes to owning user or admin', () => {
+    const p = manifest.policies.find((pol) => pol.entity === 'UiPreference');
+    expect(p).toBeDefined();
+    expect(p!.allowRead).toBe("auth.userId == data.userId || auth.hasRole('admin')");
+    expect(p!.allowWrite).toBe("auth.userId == data.userId || auth.hasRole('admin')");
+  });
+
 // ---------------------------------------------------------------------------
 // Mock store: ManagerSetting
 // ---------------------------------------------------------------------------
