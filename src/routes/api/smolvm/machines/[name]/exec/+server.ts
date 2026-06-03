@@ -1,8 +1,8 @@
-import { getSmolVmClient } from '$lib/server/smolvm-client';
-import { placeholderStatus, unauthorizedSmolVmResponse } from '$lib/server/smolvm-api';
+import { requireSmolVmAdmin, unauthorizedSmolVmResponse } from '$lib/server/smolvm-api';
 import type { RequestHandler } from './$types';
 
-export const POST: RequestHandler = async ({ locals, params }) => {
+export const POST: RequestHandler = async ({ locals, params, request }) => {
   if (!locals.admin) return unauthorizedSmolVmResponse();
-  return placeholderStatus(getSmolVmClient().getExecPlaceholder(params.name));
+  const body = await request.json();
+  return requireSmolVmAdmin({ locals }, (client) => client.execMachine(params.name, body));
 };
