@@ -70,3 +70,32 @@ export type ConfigDiff = {
 };
 
 export type VmFormMode = 'create' | 'edit' | 'copy' | 'recreate';
+
+export type CapacityData = {
+  allocatedCpus: number;
+  allocatedMemoryMb: number;
+  usedCpus: number;
+  usedMemoryMb: number;
+  usedDiskGb: number;
+};
+
+export type MetricsSnapshot = {
+  capacity: CapacityData;
+  summary: {
+    machinesRunning: number | null;
+    machinesTotal: number | null;
+    perVmUnavailable: boolean;
+  };
+  sampledAt: string;
+};
+
+export type MetricsSample = {
+  id: string;
+  machineName: string | null;
+  cpu: number;
+  memoryMb: number;
+  diskGb: number;
+  networkRxBytes: number;
+  networkTxBytes: number;
+  sampledAt: string;
+};
