@@ -7,7 +7,7 @@ import {
   rmSync,
   writeFileSync
 } from 'node:fs';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 export type LifecycleSignal = 'SIGINT' | 'SIGTERM';
 
@@ -30,7 +30,7 @@ export type SpawnRequest = {
 export type PylonConfig = {
   command: string;
   appFile: string;
-  appDb: string;
+  dbPath: string;
   sessionDb: string;
   pidFile: string;
   cwd: string;
@@ -58,8 +58,8 @@ export function getPylonConfig(env: NodeJS.ProcessEnv = process.env): PylonConfi
   return {
     command: env.PYLON_COMMAND?.trim() || 'pylon',
     appFile: env.PYLON_APP_FILE?.trim() || 'app.ts',
-    appDb: env.PYLON_APP_DB?.trim() || 'sqlite://./data/pylon-app.db',
-    sessionDb: env.PYLON_SESSION_DB?.trim() || 'sqlite://./data/pylon-sessions.db',
+    dbPath: env.PYLON_DB_PATH?.trim() || './data/pylon-app.db',
+    sessionDb: env.PYLON_SESSION_DB?.trim() || './data/pylon-sessions.db',
     pidFile: env.PYLON_PID_FILE?.trim() || defaultPidFile,
     cwd: env.MANAGER_ROOT?.trim() || process.cwd()
   };
@@ -71,7 +71,7 @@ export function buildPylonSpawnRequest(config: PylonConfig): SpawnRequest {
     cwd: config.cwd,
     env: {
       ...process.env,
-      PYLON_APP_DB: config.appDb,
+      PYLON_DB_PATH: config.dbPath,
       PYLON_SESSION_DB: config.sessionDb
     } as Record<string, string>,
     stdout: 'pipe',

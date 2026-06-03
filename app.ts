@@ -184,7 +184,7 @@ const managerPolicies = [
   })
 ];
 
-export default buildManifest({
+const manifest = buildManifest({
   name: 'smolvm-manager',
   version: '0.0.1',
   entities: [
@@ -213,3 +213,6 @@ export default buildManifest({
     trustedOrigins: ['http://localhost:3000', 'http://127.0.0.1:3000']
   })
 });
+
+export default manifest;
+console.log(JSON.stringify(manifest));

@@ -35,8 +35,8 @@ test('pylon lifecycle builds expected spawn arguments and database env', async (
   expect(requests).toHaveLength(1);
   expect(requests[0].command).toEqual(['/opt/pylon', 'dev', 'app.ts']);
   expect(requests[0].cwd).toBe(config.cwd);
-  expect(requests[0].env.PYLON_APP_DB).toBe('sqlite://./data/app.db');
-  expect(requests[0].env.PYLON_SESSION_DB).toBe('sqlite://./data/session.db');
+  expect(requests[0].env.PYLON_DB_PATH).toBe('./data/app.db');
+  expect(requests[0].env.PYLON_SESSION_DB).toBe('./data/session.db');
   expect(readFileSync(config.pidFile, 'utf8')).toBe('4242\n');
 });
 
@@ -98,8 +98,8 @@ function makeConfig(overrides: Partial<PylonConfig> = {}): PylonConfig {
   return {
     command: '/opt/pylon',
     appFile: 'app.ts',
-    appDb: 'sqlite://./data/app.db',
-    sessionDb: 'sqlite://./data/session.db',
+    dbPath: './data/app.db',
+    sessionDb: './data/session.db',
     pidFile: join(root, 'pylon.pid'),
     cwd: root,
     ...overrides
