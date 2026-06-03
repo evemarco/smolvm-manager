@@ -194,7 +194,7 @@ test.describe('vm dashboard', () => {
     await expect(page.getByRole('button', { name: 'Config' })).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Logs' })).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Terminal' })).toBeEnabled();
-    await expect(page.getByRole('button', { name: 'Metrics' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Metrics' })).toBeEnabled();
 
     // Back button should be visible
     await expect(page.getByRole('button', { name: 'Back to machine list' })).toBeVisible();
