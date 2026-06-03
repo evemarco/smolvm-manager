@@ -16,6 +16,12 @@ function smolVmTerminalWebSockets(): Plugin {
   };
 }
 
+// Routes that must never be served from the service worker cache:
+// - /api/* — all authenticated/dynamic API endpoints
+// - /login, /setup, /logout — auth pages
+// - Terminal WebSocket upgrades
+const swDenylist = [/^\/api\//, /^\/login/, /^\/setup/, /^\/logout/, /\/terminal\/ws$/];
+
 export default defineConfig({
   plugins: [
     smolVmTerminalWebSockets(),
@@ -34,6 +40,14 @@ export default defineConfig({
         scope: '/',
         start_url: '/',
         icons: [{ src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml' }]
+      },
+      workbox: {
+        // Only precache static assets (JS, CSS, HTML, fonts, images)
+        globPatterns: ['**/*.{js,css,html,svg,ico,webmanifest}'],
+        // Never serve navigation fallback for API or auth routes
+        navigateFallbackDenylist: swDenylist,
+        // No runtime caching — all dynamic/authenticated content must be fetched fresh
+        runtimeCaching: []
       }
     })
   ]
