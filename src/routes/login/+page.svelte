@@ -6,7 +6,7 @@
   <title>Login - SmolVM Manager</title>
 </svelte:head>
 
-<main class="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6 py-10">
+<div class="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6 py-10">
   <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-8 shadow-xl">
     <h1 class="text-2xl font-semibold text-white">Sign In</h1>
     <p class="mt-2 text-sm text-slate-400">Access the SmolVM Manager control plane.</p>
@@ -52,4 +52,4 @@
       </button>
     </form>
   </div>
-</main>
+</div>
