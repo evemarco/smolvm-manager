@@ -1,0 +1,24 @@
+[Unit]
+Description=SmolVM Manager web UI
+After=network.target smolvm-serve.service
+Wants=smolvm-serve.service
+
+[Service]
+Type=simple
+User=smolvm-manager
+Group=smolvm-manager
+WorkingDirectory=/var/lib/smolvm-manager
+EnvironmentFile=/etc/smolvm-manager/env
+ExecStart=/usr/local/bin/bun run scripts/start-manager.ts --prod
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/smolvm-manager/data /var/lib/smolvm-manager/.pylon
+
+[Install]
+WantedBy=multi-user.target

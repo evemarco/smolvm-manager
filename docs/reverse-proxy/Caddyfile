@@ -1,0 +1,26 @@
+manager.lan {
+    # Reverse proxy to the SmolVM Manager
+    # Caddy handles HTTPS automatically via ACME/Let's Encrypt
+    # For LAN-only without public DNS, use internal TLS or remove tls directive
+
+    reverse_proxy 127.0.0.1:3000 {
+        # Forward WebSocket upgrade headers for terminal support
+        header_up Host {host}
+        header_up X-Real-IP {remote}
+        header_up X-Forwarded-For {remote}
+        header_up X-Forwarded-Proto {scheme}
+        header_up Upgrade {http_upgrade}
+        header_up Connection {>Connection}
+    }
+
+    # Optional: basic logging
+    log {
+        output file /var/log/caddy/manager.lan.log
+    }
+}
+
+# For LAN/Tailscale without public DNS, use Caddy's internal issuer:
+# manager.lan {
+#     tls internal
+#     reverse_proxy 127.0.0.1:3000
+# }
