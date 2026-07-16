@@ -11,6 +11,12 @@ node_modules
 # OMO workspace metadata
 /.omo/
 
+# OpenCode config
+/.opencode/
+
+# QA / temporary reports
+QA-REPORT*.md
+
 # Output
 .output
 .vercel
