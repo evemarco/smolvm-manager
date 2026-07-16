@@ -18,6 +18,7 @@ This file documents a complete production deployment layout for [SmolVM Manager]
 ├── build/
 │   └── (vite production build)
 └── docs/
+    ├── SOURCE_BUILDS.md
     ├── smolvm-manager.service
     ├── smolvm-manager.env
     └── reverse-proxy/
@@ -28,12 +29,14 @@ This file documents a complete production deployment layout for [SmolVM Manager]
 ## Setup Steps
 
 1. Clone the repository to `/var/lib/smolvm-manager`.
-2. Run `bun install` and `bun run build`.
-3. Create the `smolvm-manager` user and group.
-4. Copy `docs/smolvm-manager.env` to `/etc/smolvm-manager/env` and edit values.
-5. Copy `docs/smolvm-manager.service` to `/etc/systemd/system/`.
-6. Enable and start the service: `sudo systemctl enable --now smolvm-manager`.
-7. Optionally configure a reverse proxy using the examples in `docs/reverse-proxy/`.
+2. Install Pylon and SmolVM, or build them locally by following [`SOURCE_BUILDS.md`](SOURCE_BUILDS.md) when the published executables are incompatible with the host.
+3. Confirm that `pylon --version` works and that SmolVM serves `/tmp/smolvm.sock`.
+4. Run `bun install` and `bun run build`.
+5. Create the `smolvm-manager` user and group.
+6. Copy `docs/smolvm-manager.env` to `/etc/smolvm-manager/env` and edit values.
+7. Copy `docs/smolvm-manager.service` to `/etc/systemd/system/`.
+8. Enable and start the service: `sudo systemctl enable --now smolvm-manager`.
+9. Optionally configure a reverse proxy using the examples in `docs/reverse-proxy/`.
 
 ## Security Notes
 
@@ -66,6 +69,24 @@ Two environment variables control Pylon integration:
 ## Pylon Runtime Dependencies
 
 Some [Pylon](https://github.com/pylonsync/pylon) builds require `libxmlsec1-openssl.so.1` at runtime. If the service fails to start with a library error, install the corresponding system package (e.g., `libxmlsec1-openssl` on Debian/Ubuntu, `xmlsec1-openssl` on Fedora).
+
+This runtime package is not the complete build toolchain. Pylon source builds also require Rust, Cargo, Bun, Git, a C compiler, and the system linker. SmolVM source builds additionally require Git LFS, KVM, `patchelf`, e2fsprogs, CMake, and related native build tools. The full distribution-specific package lists are in [`SOURCE_BUILDS.md`](SOURCE_BUILDS.md).
+
+## Runtime Executable Installation
+
+The systemd unit expects both runtime services to be available before the manager starts:
+
+- `PYLON_COMMAND` must resolve to the Pylon executable.
+- `smolvm-serve.service` must start SmolVM on the socket configured by `SMOLVM_SOCKET`.
+
+When upstream executables cannot run on the deployment distribution, build them before enabling `smolvm-manager.service`:
+
+```sh
+./scripts/build-pylon.sh
+./scripts/build-smolvm.sh --version v1.6.3
+```
+
+Do not install raw `libkrun.so` files directly from the SmolVM source tree. The project script runs the complete SmolVM distribution packaging step, which makes GPU libraries optional for non-GPU VMs and validates the resulting loader dependencies.
 
 ## Logs
 
