@@ -3,8 +3,7 @@ import type { MetricsSample } from '$lib/types';
 type Row = Record<string, unknown>;
 
 type ReactiveMessage =
-  | { kind: 'result'; result: unknown }
-  | { kind: 'error'; code: string; message: string };
+  { kind: 'result'; result: unknown } | { kind: 'error'; code: string; message: string };
 
 type SyncEngine = {
   subscribeReactive(

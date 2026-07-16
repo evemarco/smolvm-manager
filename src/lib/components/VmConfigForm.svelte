@@ -467,8 +467,7 @@
           bind:value={tomlInput}
           rows="12"
           class="w-full rounded-lg border border-white/10 bg-slate-950 p-3 font-mono text-sm text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none"
-          placeholder="Paste TOML configuration here..."
-        ></textarea>
+          placeholder="Paste TOML configuration here..."></textarea>
         {#if tomlErrors.length > 0}
           <div class="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 p-3">
             {#each tomlErrors as error, i (i)}

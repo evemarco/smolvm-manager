@@ -9,8 +9,7 @@ import {
 } from './pylon-sync';
 
 type ReactiveMessage =
-  | { kind: 'result'; result: unknown }
-  | { kind: 'error'; code: string; message: string };
+  { kind: 'result'; result: unknown } | { kind: 'error'; code: string; message: string };
 
 type Subscription = {
   subId: string;

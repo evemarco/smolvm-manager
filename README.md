@@ -37,19 +37,19 @@ The manager listens on `MANAGER_HOST:MANAGER_PORT` (default `0.0.0.0:3000` in de
 
 ## Environment Variables
 
-| Variable              | Default                             | Description                                                 |
-| --------------------- | ----------------------------------- | ----------------------------------------------------------- |
-| `SMOLVM_SOCKET`       | `/tmp/smolvm.sock`                  | Unix socket path for SmolVM API                             |
-| `MANAGER_HOST`        | `0.0.0.0`                           | Manager bind address                                        |
-| `MANAGER_PORT`        | `3000` (dev) / `4173` (prod)        | Manager bind port                                           |
-| `PYLON_URL`           | `http://127.0.0.1:3001`             | Pylon HTTP endpoint                                         |
-| `PYLON_COMMAND`       | `pylon`                             | Pylon CLI command                                           |
-| `PYLON_DB_PATH`       | `./data/pylon-app.db`               | Pylon application database                                  |
-| `PYLON_SESSION_DB`    | `./data/pylon-sessions.db`          | Pylon session database (plain path, no URI prefix)          |
-| `PYLON_PID_FILE`      | `./.pylon/pylon.pid`                | Pylon process lock file                                     |
-| `DOCKER_HUB_TOKEN`    | (empty)                             | Optional Docker Hub token for authenticated image search    |
-| `PYLON_STORE_MODE`    | `typed`                             | Pylon store transport: `typed` (default), `rest`, or `mock` |
-| `PYLON_SERVICE_TOKEN` | (empty)                             | Server-side secret for background jobs (metrics, audit)     |
+| Variable              | Default                      | Description                                                 |
+| --------------------- | ---------------------------- | ----------------------------------------------------------- |
+| `SMOLVM_SOCKET`       | `/tmp/smolvm.sock`           | Unix socket path for SmolVM API                             |
+| `MANAGER_HOST`        | `0.0.0.0`                    | Manager bind address                                        |
+| `MANAGER_PORT`        | `3000` (dev) / `4173` (prod) | Manager bind port                                           |
+| `PYLON_URL`           | `http://127.0.0.1:3001`      | Pylon HTTP endpoint                                         |
+| `PYLON_COMMAND`       | `pylon`                      | Pylon CLI command                                           |
+| `PYLON_DB_PATH`       | `./data/pylon-app.db`        | Pylon application database                                  |
+| `PYLON_SESSION_DB`    | `./data/pylon-sessions.db`   | Pylon session database (plain path, no URI prefix)          |
+| `PYLON_PID_FILE`      | `./.pylon/pylon.pid`         | Pylon process lock file                                     |
+| `DOCKER_HUB_TOKEN`    | (empty)                      | Optional Docker Hub token for authenticated image search    |
+| `PYLON_STORE_MODE`    | `typed`                      | Pylon store transport: `typed` (default), `rest`, or `mock` |
+| `PYLON_SERVICE_TOKEN` | (empty)                      | Server-side secret for background jobs (metrics, audit)     |
 
 See `.env.example` for the full template.
 

@@ -33,8 +33,7 @@ export type PylonUser = {
 };
 
 export type AuthOutcome =
-  | { success: true; user: PylonUser; setCookie?: string }
-  | { success: false; error: string };
+  { success: true; user: PylonUser; setCookie?: string } | { success: false; error: string };
 
 export interface PylonAuthClient {
   /** Probe current session from Pylon. Returns null when unauthenticated. */

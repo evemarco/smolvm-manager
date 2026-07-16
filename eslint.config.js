@@ -14,7 +14,8 @@ export default ts.config(
       'node_modules/**',
       'playwright-report/**',
       'test-results/**',
-      '.omo/evidence/**'
+      '.omo/evidence/**',
+      'pylon.client.ts'
     ]
   },
   js.configs.recommended,

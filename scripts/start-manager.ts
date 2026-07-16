@@ -56,8 +56,8 @@ function getPylonConfigForStartup() {
   return {
     command: process.env.PYLON_COMMAND?.trim() || 'pylon',
     appFile: process.env.PYLON_APP_FILE?.trim() || 'app.ts',
-    appDb: process.env.PYLON_APP_DB?.trim() || 'sqlite://./data/pylon-app.db',
-    sessionDb: process.env.PYLON_SESSION_DB?.trim() || 'sqlite://./data/pylon-sessions.db',
+    dbPath: process.env.PYLON_DB_PATH?.trim() || './data/pylon-app.db',
+    sessionDb: process.env.PYLON_SESSION_DB?.trim() || './data/pylon-sessions.db',
     pidFile: process.env.PYLON_PID_FILE?.trim() || `${process.cwd()}/.pylon/pylon.pid`,
     cwd: process.cwd()
   };
