@@ -91,6 +91,16 @@ Update `PYLON_DB_PATH` and `PYLON_SESSION_DB` to point under this directory.
 
 ### 3. Systemd Service
 
+The service runs as a dedicated `smolvm-manager` user under a strict mount sandbox (`ProtectHome=true`), so create the user and install `bun` and `pylon` as real files in `/usr/local/bin` — never symlinks into `/root`:
+
+```sh
+sudo useradd --system --home-dir /var/lib/smolvm-manager \
+  --shell /sbin/nologin --comment "SmolVM Manager service" smolvm-manager
+sudo chown -R smolvm-manager:smolvm-manager /var/lib/smolvm-manager
+sudo cp "$(command -v bun)" /usr/local/bin/bun
+sudo cp "$(command -v pylon)" /usr/local/bin/pylon
+```
+
 Copy the example service and environment files:
 
 ```sh
@@ -100,7 +110,9 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now smolvm-manager
 ```
 
-The service expects `smolvm-serve.service` to be active (it uses `After=` and `Wants=`). See `docs/smolvm-manager.service` for details.
+With Pylon 0.3.333 or later, also set `PYLON_ADMIN_TOKEN` in `/etc/smolvm-manager/env` (`openssl rand -hex 32`) — Pylon default-denies anonymous entity access and the manager authenticates its server-side calls with this token.
+
+The service expects `smolvm-serve.service` to be active (it uses `After=` and `Wants=`). Install it from `docs/smolvm-serve.service`, which sets `UMask=0000` so the manager's unprivileged user can connect to `/tmp/smolvm.sock`. See `docs/DEPLOYMENT.md` for the full layout and the trade-offs of running as `root` instead.
 
 ### 4. Reverse Proxy (Optional)
 

@@ -20,6 +20,7 @@ This file documents a complete production deployment layout for [SmolVM Manager]
 └── docs/
     ├── SOURCE_BUILDS.md
     ├── smolvm-manager.service
+    ├── smolvm-serve.service
     ├── smolvm-manager.env
     └── reverse-proxy/
         ├── nginx.conf
@@ -30,13 +31,31 @@ This file documents a complete production deployment layout for [SmolVM Manager]
 
 1. Clone the repository to `/var/lib/smolvm-manager`.
 2. Install Pylon and SmolVM, or build them locally by following [`SOURCE_BUILDS.md`](SOURCE_BUILDS.md) when the published executables are incompatible with the host.
-3. Confirm that `pylon --version` works and that SmolVM serves `/tmp/smolvm.sock`.
-4. Run `bun install` and `bun run build`.
-5. Create the `smolvm-manager` user and group.
-6. Copy `docs/smolvm-manager.env` to `/etc/smolvm-manager/env` and edit values.
-7. Copy `docs/smolvm-manager.service` to `/etc/systemd/system/`.
-8. Enable and start the service: `sudo systemctl enable --now smolvm-manager`.
-9. Optionally configure a reverse proxy using the examples in `docs/reverse-proxy/`.
+3. Install the executables where the sandbox can reach them. The unit sets `ProtectHome=true`, so anything under `/root` or `/home` is invisible to the service — copy `bun` and `pylon` as real files (not symlinks into `/root`) to `/usr/local/bin/`.
+4. Confirm that `pylon --version` works and that SmolVM serves `/tmp/smolvm.sock`.
+5. Run `bun install` and `bun run build`.
+6. Create the `smolvm-manager` user and group:
+
+   ```sh
+   sudo useradd --system --home-dir /var/lib/smolvm-manager \
+     --shell /sbin/nologin --comment "SmolVM Manager service" smolvm-manager
+   sudo chown -R smolvm-manager:smolvm-manager /var/lib/smolvm-manager
+   ```
+
+7. Copy `docs/smolvm-manager.env` to `/etc/smolvm-manager/env` and edit values. With Pylon 0.3.333 or later you must set `PYLON_ADMIN_TOKEN` (generate one with `openssl rand -hex 32`): Pylon default-denies anonymous entity access and the manager presents this token on its server-side calls.
+8. Copy `docs/smolvm-manager.service` and `docs/smolvm-serve.service` to `/etc/systemd/system/`. The SmolVM unit carries `UMask=0000` so the manager's unprivileged user may connect to `/tmp/smolvm.sock` (a `022` umask creates it `srwxr-xr-x`, which rejects non-root clients).
+9. Enable and start the service: `sudo systemctl enable --now smolvm-manager`.
+10. Optionally configure a reverse proxy using the examples in `docs/reverse-proxy/`.
+
+## Service User and Filesystem Isolation
+
+The manager unit runs as the dedicated `smolvm-manager` user with `ProtectSystem=strict`, `ProtectHome=true`, and `ReadWritePaths=/var/lib/smolvm-manager`. Concretely:
+
+- `/root` and `/home` do not exist for the process. This is why `bun` and `pylon` must live in `/usr/local/bin` rather than under `/root`.
+- The whole filesystem is read-only except `/var/lib/smolvm-manager`, which covers the app data, Pylon databases, and Vite's temporary config bundle.
+- Files owned by root elsewhere on the host do not need to change: the service is self-contained in its own directory and only talks to SmolVM through `/tmp/smolvm.sock`.
+
+Running as `root` instead is possible: set `User=root` and `Group=root` in `smolvm-manager.service`, keep the working directory anywhere you like, and drop `ProtectHome=true` if the app must read `/root`. You lose the sandbox — a manager compromise is then a root compromise — so prefer the dedicated user on any host that matters.
 
 ## Security Notes
 

@@ -1,0 +1,33 @@
+[Unit]
+Description=smolvm HTTP API server
+Documentation=https://github.com/smol-machines/smolvm
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/.smolvm
+
+# The wrapper script sets LD_LIBRARY_PATH and SMOLVM_AGENT_ROOTFS
+ExecStart=/root/.smolvm/smolvm serve start
+
+# If smolvm serve start accepts a --listen flag, you can bind to a specific address:
+# ExecStart=/root/.smolvm/smolvm serve start --listen 0.0.0.0:8080
+
+# Unix socket clients connect with write permission; umask 022 would create
+# /tmp/smolvm.sock as srwxr-xr-x and refuse every non-root client (the manager
+# runs as its own user). UMask=0000 keeps the socket world-connectable.
+UMask=0000
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Ensure the service can access /dev/kvm if needed by child VMs
+SupplementaryGroups=kvm
+
+[Install]
+WantedBy=multi-user.target
