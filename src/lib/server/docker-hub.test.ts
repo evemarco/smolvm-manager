@@ -212,7 +212,7 @@ describe('docker-hub client', () => {
         response: new Response(
           JSON.stringify({
             count: 1,
-            results: [{ repo_name: 'leplusorg/tor', short_description: 'Tor image' }]
+            results: [{ repo_name: 'failcase/tor', short_description: 'Tor image' }]
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         )

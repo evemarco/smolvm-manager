@@ -96,6 +96,31 @@ export type DockerHubClientOptions = {
 const DEFAULT_BASE_URL = 'https://hub.docker.com';
 const MAX_PAGE_SIZE = 100;
 const DEFAULT_TIMEOUT_MS = 15000;
+const DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
+const DETAIL_CACHE_MAX_ENTRIES = 500;
+
+// Anonymous Docker Hub throttling bites after ~100 calls; enrichment would
+// multiply requests by page size without a cache. Dates move slowly, so a
+// short TTL absorbs page revisits and repeated searches.
+const detailCache = new Map<string, { lastUpdated?: string; expiresAt: number }>();
+
+function readDetailCache(key: string): { lastUpdated?: string } | undefined {
+  const entry = detailCache.get(key);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    detailCache.delete(key);
+    return undefined;
+  }
+  return entry;
+}
+
+function writeDetailCache(key: string, value: { lastUpdated?: string }): void {
+  if (detailCache.size >= DETAIL_CACHE_MAX_ENTRIES) {
+    const oldest = detailCache.keys().next().value;
+    if (oldest !== undefined) detailCache.delete(oldest);
+  }
+  detailCache.set(key, { ...value, expiresAt: Date.now() + DETAIL_CACHE_TTL_MS });
+}
 
 function getConfiguredToken(): string | undefined {
   return process.env.DOCKER_HUB_TOKEN?.trim() || undefined;
@@ -357,6 +382,11 @@ export function createDockerHubClient(options: DockerHubClientOptions = {}): Doc
       // endpoint in parallel and drop dates that fail rather than the search.
       const enriched = await Promise.all(
         paged.results.map(async (r) => {
+          const cacheKey = `${r.namespace}/${r.name}`;
+          const cached = readDetailCache(cacheKey);
+          if (cached) {
+            return cached.lastUpdated ? { ...r, last_updated: cached.lastUpdated } : r;
+          }
           try {
             const detail = await callDockerHub(
               buildRepositoryUrl(baseUrl, r.namespace, r.name),
@@ -365,6 +395,7 @@ export function createDockerHubClient(options: DockerHubClientOptions = {}): Doc
               fetchImpl,
               coerceRepositoryDetail
             );
+            writeDetailCache(cacheKey, detail);
             return { ...r, last_updated: detail.lastUpdated };
           } catch {
             return r;
