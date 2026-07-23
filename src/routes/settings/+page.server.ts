@@ -22,7 +22,7 @@ export const load: PageServerLoad = async () => {
     const setting = await getManagerStoreClient().getSetting(DOCKER_HUB_TOKEN_SETTING_KEY);
     stored = readStoredCredentials(setting?.valueJson);
   } catch {
-    stored = { username: '', token: '' };
+    // keep the empty defaults
   }
 
   return {
