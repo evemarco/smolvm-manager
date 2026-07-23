@@ -111,21 +111,22 @@ describe('docker-hub client', () => {
   test('searchRepositories constructs safe URL and parses response', async () => {
     const mockFetch = createMockFetch([
       {
-        urlMatcher: /\/api\/content\/v1\/products\/search/,
+        urlMatcher: /\/v2\/search\/repositories\//,
         response: new Response(
           JSON.stringify({
-            summaries: [
+            count: 1,
+            page: 1,
+            page_size: 25,
+            next: null,
+            results: [
               {
-                slug: 'library/alpine',
+                repo_name: 'alpine',
                 short_description: 'A minimal Docker image',
                 star_count: 5000,
                 pull_count: 1000000,
-                filter_categories: [{ slug: 'docker_official_image' }]
+                is_official: true
               }
-            ],
-            page: 1,
-            page_size: 25,
-            total: 1
+            ]
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         )
@@ -194,7 +195,7 @@ describe('docker-hub client', () => {
     const mockFetch = async (url: string | URL | Request) => {
       capturedUrl =
         typeof url === 'string' ? url : url instanceof Request ? url.url : url.toString();
-      return new Response(JSON.stringify({ summaries: [], page: 1, page_size: 100, total: 0 }), {
+      return new Response(JSON.stringify({ results: [], page: 1, page_size: 100, count: 0 }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -340,7 +341,7 @@ describe('docker-hub client', () => {
     let capturedHeaders: HeadersInit | undefined;
     const mockFetch = async (_url: string | URL | Request, init?: RequestInit) => {
       capturedHeaders = init?.headers;
-      return new Response(JSON.stringify({ summaries: [], page: 1, page_size: 25, total: 0 }), {
+      return new Response(JSON.stringify({ results: [], page: 1, page_size: 25, count: 0 }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       });

@@ -105,11 +105,10 @@ function cappedPageSize(size: number): number {
 }
 
 function buildSearchUrl(baseUrl: string, query: string, page: number, pageSize: number): string {
-  const url = new URL('/api/content/v1/products/search', baseUrl);
-  url.searchParams.set('q', query);
+  const url = new URL('/v2/search/repositories/', baseUrl);
+  url.searchParams.set('query', query);
   url.searchParams.set('page', String(page));
   url.searchParams.set('page_size', String(cappedPageSize(pageSize)));
-  url.searchParams.set('type', 'image');
   return url.toString();
 }
 
@@ -229,28 +228,23 @@ function coerceSearchPage(body: unknown): DockerHubSearchPage {
   }
 
   const obj = body as Record<string, unknown>;
-  const summaries = Array.isArray(obj.summaries) ? obj.summaries : [];
+  const rawResults = Array.isArray(obj.results) ? obj.results : [];
   const page = typeof obj.page === 'number' ? obj.page : 1;
   const pageSize = typeof obj.page_size === 'number' ? obj.page_size : MAX_PAGE_SIZE;
-  const totalCount = typeof obj.total === 'number' ? obj.total : undefined;
+  const totalCount = typeof obj.count === 'number' ? obj.count : undefined;
 
-  const results: DockerHubSearchResult[] = summaries.map((item: unknown) => {
+  const results: DockerHubSearchResult[] = rawResults.map((item: unknown) => {
     const s = (item ?? {}) as Record<string, unknown>;
-    const slug = typeof s.slug === 'string' ? s.slug : '';
-    const parts = slug.split('/');
+    const repoName = typeof s.repo_name === 'string' ? s.repo_name : '';
+    const parts = repoName.split('/');
     const namespace = parts.length > 1 ? parts[0] : 'library';
-    const name = parts.length > 1 ? parts.slice(1).join('/') : slug;
-
-    const filterCategories = Array.isArray(s.filter_categories)
-      ? (s.filter_categories as Array<Record<string, unknown>>)
-      : [];
-    const isOfficial = filterCategories.some((c) => c.slug === 'docker_official_image');
+    const name = parts.length > 1 ? parts.slice(1).join('/') : repoName;
 
     return {
       name,
       namespace,
       repository_type: typeof s.repository_type === 'string' ? s.repository_type : undefined,
-      is_official: isOfficial,
+      is_official: typeof s.is_official === 'boolean' ? s.is_official : undefined,
       description: typeof s.short_description === 'string' ? s.short_description : undefined,
       star_count: typeof s.star_count === 'number' ? s.star_count : undefined,
       pull_count: typeof s.pull_count === 'number' ? s.pull_count : undefined
