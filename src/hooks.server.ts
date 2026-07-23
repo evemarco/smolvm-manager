@@ -1,5 +1,8 @@
 import { redirect, type Handle } from '@sveltejs/kit';
 import { getPylonAuthClient, generateCsrfToken } from '$lib/server/pylon-auth-client';
+import { startMetricsSampler } from '$lib/server/metrics-sampler';
+
+startMetricsSampler();
 
 const PUBLIC_ROUTES = new Set(['/login', '/setup', '/offline']);
 const PUBLIC_API_PREFIXES = ['/api/public'];

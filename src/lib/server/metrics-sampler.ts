@@ -139,6 +139,16 @@ export async function getLiveSnapshot(options?: {
   }
 }
 
+const samplerGuard = globalThis as { __smolvmMetricsSamplerStarted?: boolean };
+
+export function startMetricsSampler(intervalMs: number = DEFAULT_SAMPLE_INTERVAL_MS): void {
+  if (samplerGuard.__smolvmMetricsSamplerStarted) return;
+  samplerGuard.__smolvmMetricsSamplerStarted = true;
+  const tick = () => void collectAndStoreSample();
+  void collectAndStoreSample();
+  setInterval(tick, intervalMs).unref();
+}
+
 /**
  * Retrieve recent metrics history from the store.
  */
