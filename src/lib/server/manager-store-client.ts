@@ -222,10 +222,12 @@ async function pylonFetchJson(
 ): Promise<{ status: number; body: unknown }> {
   const baseUrl = getPylonBaseUrl();
   const url = `${baseUrl}${path}`;
+  const adminToken = process.env.PYLON_ADMIN_TOKEN?.trim();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Accept: 'application/json',
-    ...(serviceToken ? { 'X-Pylon-Service-Token': serviceToken } : {})
+    ...(serviceToken ? { 'X-Pylon-Service-Token': serviceToken } : {}),
+    ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {})
   };
 
   try {
@@ -258,6 +260,11 @@ async function pylonTransportFetchJson(
   serviceToken?: string
 ): Promise<{ status: number; body: unknown }> {
   const config = { baseUrl: getPylonBaseUrl() };
+  const adminToken = process.env.PYLON_ADMIN_TOKEN?.trim();
+  const transportHeaders: Record<string, string> = {
+    ...(serviceToken ? { 'X-Pylon-Service-Token': serviceToken } : {}),
+    ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {})
+  };
 
   try {
     const pylonFetchRaw = await loadPylonFetchRaw();
@@ -265,7 +272,7 @@ async function pylonTransportFetchJson(
       method: init.method,
       json: init.json,
       accept: 'application/json',
-      ...(serviceToken ? { headers: { 'X-Pylon-Service-Token': serviceToken } } : {})
+      ...(Object.keys(transportHeaders).length > 0 ? { headers: transportHeaders } : {})
     });
 
     let body: unknown = null;

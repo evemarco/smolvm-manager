@@ -5,18 +5,26 @@
  * a narrow client that documents the Pylon endpoint contracts and can be
  * mocked in environments where the Pylon CLI cannot run.
  *
- * Endpoint contracts (to be verified against a live Pylon instance):
- * - GET  /api/auth/me              → { user_id, tenant_id, is_admin, roles }
- * - POST /api/auth/sign-in/email   → { token, user: { id, email, name, ... } }
- * - POST /api/auth/sign-up/email   → { token, user: { id, email, name, ... } }
- * - POST /api/auth/sign-out        → void (clears session cookie)
- * - DELETE /api/auth/session       → void (revokes session server-side)
- * - GET  /api/entities/User        → [{ id, email, name, isAdmin, ... }]
- * - POST /api/entities/AuditEvent  → { id } (creates audit row)
+ * Endpoint contracts (Pylon 0.3.333):
+ * - GET    /api/auth/me             → { user_id, is_admin, roles } (session Bearer)
+ * - POST   /api/auth/password/login → { token, user_id, expires_at }
+ * - GET    /api/auth/session        → { session, user } (session Bearer)
+ * - DELETE /api/auth/session        → void (revokes session server-side)
+ * - GET    /api/entities/User       → { data: [...] } (admin Bearer only)
+ * - POST   /api/entities/User       → { id } (admin Bearer; user creation)
+ * - POST   /api/entities/AuditEvent → { id } (admin Bearer; audit row)
+ *
+ * Pylon has no sign-up endpoint: the setup flow creates the User row with the
+ * admin token and an argon2id hash, then mints a session via password/login.
+ * The browser-facing `pylon_session` cookie holds the Pylon session token,
+ * which the manager forwards as `Authorization: Bearer` — Pylon does not read
+ * cookies.
  *
  * In test environments, set PYLON_AUTH_MOCK=true to use the in-memory
  * mock implementation instead of real HTTP calls.
  */
+
+import * as nodeCrypto from 'node:crypto';
 
 export type PylonSession = {
   userId: string | null;
@@ -75,20 +83,17 @@ function extractCookie(request: Request, name: string): string | undefined {
   return match?.[1];
 }
 
-function buildCookieHeader(request: Request): string | undefined {
-  return request.headers.get('cookie') ?? undefined;
-}
-
 async function pylonFetchJson(
   path: string,
-  init: RequestInit & { cookie?: string }
+  init: RequestInit & { admin?: boolean; bearer?: string }
 ): Promise<{ status: number; body: unknown; setCookie?: string }> {
   const baseUrl = getPylonBaseUrl();
   const url = `${baseUrl}${path}`;
+  const token = init.bearer ?? (init.admin ? process.env.PYLON_ADMIN_TOKEN?.trim() : undefined);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Accept: 'application/json',
-    ...(init.cookie ? { Cookie: init.cookie } : {})
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
   };
 
   const response = await fetch(url, {
@@ -113,13 +118,64 @@ async function pylonFetchJson(
   return { status: response.status, body, setCookie };
 }
 
+async function fetchSessionUser(token: string): Promise<PylonUser | null> {
+  const { status, body } = await pylonFetchJson('/api/auth/session', {
+    method: 'GET',
+    bearer: token
+  });
+  if (status !== 200 || !body || typeof body !== 'object') return null;
+  const user = (body as Record<string, unknown>).user as Record<string, unknown> | undefined;
+  if (!user) return null;
+  return {
+    id: String(user.id),
+    email: String(user.email),
+    name: (user.name as string) || null,
+    isAdmin: Boolean(user.isAdmin)
+  };
+}
+
+function buildSessionCookie(token: string, expiresAt?: number): string {
+  const maxAge = expiresAt ? Math.max(0, Math.floor(expiresAt - Date.now() / 1000)) : 86400;
+  return `pylon_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+}
+
+async function signInWithPassword(email: string, password: string): Promise<AuthOutcome> {
+  const { status, body } = await pylonFetchJson('/api/auth/password/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password })
+  });
+
+  if (status !== 200 || !body || typeof body !== 'object') {
+    return { success: false, error: 'Invalid credentials' };
+  }
+
+  const b = body as Record<string, unknown>;
+  const token = b.token as string | undefined;
+  if (!token) {
+    return { success: false, error: 'Invalid credentials' };
+  }
+
+  const user = await fetchSessionUser(token);
+  if (!user) {
+    return { success: false, error: 'Invalid credentials' };
+  }
+
+  return {
+    success: true,
+    user,
+    setCookie: buildSessionCookie(token, b.expires_at as number | undefined)
+  };
+}
+
 export function createPylonAuthClient(): PylonAuthClient {
   return {
     async getSession(request) {
-      const cookie = buildCookieHeader(request);
+      const sessionToken = extractCookie(request, 'pylon_session');
+      if (!sessionToken) return null;
+
       const { status, body } = await pylonFetchJson('/api/auth/me', {
         method: 'GET',
-        cookie
+        bearer: sessionToken
       });
 
       if (status !== 200 || !body || typeof body !== 'object') {
@@ -127,6 +183,7 @@ export function createPylonAuthClient(): PylonAuthClient {
       }
 
       const b = body as Record<string, unknown>;
+      if (!b.user_id) return null;
       return {
         userId: (b.user_id as string) || null,
         tenantId: (b.tenant_id as string) || null,
@@ -135,79 +192,51 @@ export function createPylonAuthClient(): PylonAuthClient {
       };
     },
 
-    async signIn(email, password, request: Request) {
-      const cookie = buildCookieHeader(request);
-      const { status, body, setCookie } = await pylonFetchJson('/api/auth/sign-in/email', {
-        method: 'POST',
-        cookie,
-        body: JSON.stringify({ email, password })
-      });
-
-      if (status !== 200 || !body || typeof body !== 'object') {
-        return { success: false, error: 'Invalid credentials' };
-      }
-
-      const b = body as Record<string, unknown>;
-      const user = b.user as Record<string, unknown> | undefined;
-      if (!user) {
-        return { success: false, error: 'Invalid credentials' };
-      }
-
-      return {
-        success: true,
-        user: {
-          id: String(user.id),
-          email: String(user.email),
-          name: (user.name as string) || null,
-          isAdmin: Boolean(user.isAdmin)
-        },
-        setCookie
-      };
+    async signIn(email, password) {
+      return signInWithPassword(email, password);
     },
 
-    async signUp(email, password, request: Request) {
-      const cookie = buildCookieHeader(request);
-      const { status, body, setCookie } = await pylonFetchJson('/api/auth/sign-up/email', {
+    async signUp(email, password) {
+      const passwordHash = await hashPassword(password);
+      const { status, body } = await pylonFetchJson('/api/entities/User', {
         method: 'POST',
-        cookie,
-        body: JSON.stringify({ email, password, name: email })
+        admin: true,
+        body: JSON.stringify({ email, name: email, passwordHash, isAdmin: true })
       });
 
-      if (status !== 200 || !body || typeof body !== 'object') {
+      if (status === 409) {
+        return { success: false, error: 'Account already exists' };
+      }
+      if (status !== 200 && status !== 201) {
+        const code =
+          body && typeof body === 'object'
+            ? (body as Record<string, Record<string, unknown>>).error?.code
+            : undefined;
+        if (code === 'EMAIL_TAKEN') return { success: false, error: 'Account already exists' };
         return { success: false, error: 'Signup failed' };
       }
 
-      const b = body as Record<string, unknown>;
-      const user = b.user as Record<string, unknown> | undefined;
-      if (!user) {
-        return { success: false, error: 'Signup failed' };
-      }
-
-      return {
-        success: true,
-        user: {
-          id: String(user.id),
-          email: String(user.email),
-          name: (user.name as string) || null,
-          isAdmin: Boolean(user.isAdmin)
-        },
-        setCookie
-      };
+      return signInWithPassword(email, password);
     },
 
     async signOut(request) {
-      const cookie = buildCookieHeader(request);
-      const { setCookie } = await pylonFetchJson('/api/auth/sign-out', {
-        method: 'POST',
-        cookie
-      });
-      return { setCookie };
+      const sessionToken = extractCookie(request, 'pylon_session');
+      if (sessionToken) {
+        await pylonFetchJson('/api/auth/session', {
+          method: 'DELETE',
+          bearer: sessionToken
+        });
+      }
+      return {
+        setCookie: 'pylon_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0'
+      };
     },
 
     async hasAdmin() {
       try {
         const { status, body } = await pylonFetchJson('/api/entities/User?limit=1', {
-          method: 'GET'
+          method: 'GET',
+          admin: true
         });
         if (status === 200 && body && typeof body === 'object') {
           const b = body as Record<string, unknown>;
@@ -223,6 +252,7 @@ export function createPylonAuthClient(): PylonAuthClient {
     async resetPassword(userId, newPassword) {
       const { status } = await pylonFetchJson('/api/entities/User/' + userId, {
         method: 'PATCH',
+        admin: true,
         body: JSON.stringify({ passwordHash: await hashPassword(newPassword) })
       });
       if (status !== 200) {
@@ -234,6 +264,7 @@ export function createPylonAuthClient(): PylonAuthClient {
       try {
         await pylonFetchJson('/api/entities/AuditEvent', {
           method: 'POST',
+          admin: true,
           body: JSON.stringify({ eventType, details, ipAddress })
         });
       } catch {
@@ -244,7 +275,8 @@ export function createPylonAuthClient(): PylonAuthClient {
     async getAdminUser() {
       try {
         const { status, body } = await pylonFetchJson('/api/entities/User?limit=1', {
-          method: 'GET'
+          method: 'GET',
+          admin: true
         });
         if (status === 200 && body && typeof body === 'object') {
           const b = body as Record<string, unknown>;
@@ -268,7 +300,8 @@ export function createPylonAuthClient(): PylonAuthClient {
     async getUserById(userId) {
       try {
         const { status, body } = await pylonFetchJson('/api/entities/User/' + userId, {
-          method: 'GET'
+          method: 'GET',
+          admin: true
         });
         if (status === 200 && body && typeof body === 'object') {
           const u = body as Record<string, unknown>;
@@ -287,8 +320,33 @@ export function createPylonAuthClient(): PylonAuthClient {
   };
 }
 
+type BunPasswordRuntime = {
+  password: {
+    hash(
+      password: string,
+      options: { algorithm: 'argon2id'; memoryCost: number; timeCost: number }
+    ): Promise<string>;
+  };
+};
+
 async function hashPassword(password: string): Promise<string> {
-  return Bun.password.hash(password, { algorithm: 'bcrypt', cost: 12 });
+  // Pylon verifies argon2id hashes with these exact parameters (m=19456, t=2, p=1).
+  // Bun exposes argon2id via Bun.password; Node 24+ via crypto.argon2Sync.
+  const bun = (globalThis as { Bun?: BunPasswordRuntime }).Bun;
+  if (bun) {
+    return bun.password.hash(password, { algorithm: 'argon2id', memoryCost: 19456, timeCost: 2 });
+  }
+  const salt = nodeCrypto.randomBytes(16);
+  const key = nodeCrypto.argon2Sync('argon2id', {
+    message: password,
+    nonce: salt,
+    parallelism: 1,
+    tagLength: 32,
+    memory: 19456,
+    passes: 2
+  });
+  const b64 = (buf: Buffer) => buf.toString('base64').replace(/=+$/, '');
+  return `$argon2id$v=19$m=19456,t=2,p=1$${b64(salt)}$${b64(key)}`;
 }
 
 // ---------------------------------------------------------------------------
