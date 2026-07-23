@@ -34,7 +34,7 @@ export default defineConfig({
     sveltekit(),
     SvelteKitPWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['favicon.png', 'apple-touch-icon.png', 'icons/*.png'],
       manifest: {
         name: 'SmolVM Manager',
         short_name: 'SmolVM',
@@ -44,11 +44,20 @@ export default defineConfig({
         display: 'standalone',
         scope: '/',
         start_url: '/',
-        icons: [{ src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml' }]
+        icons: [
+          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+          {
+            src: '/icons/icon-512-maskable.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable'
+          }
+        ]
       },
       workbox: {
         // Only precache static assets (JS, CSS, HTML, fonts, images)
-        globPatterns: ['**/*.{js,css,html,svg,ico,webmanifest}'],
+        globPatterns: ['**/*.{js,css,html,svg,ico,webmanifest,png}'],
         // Never serve navigation fallback for API or auth routes
         navigateFallbackDenylist: swDenylist,
         // No runtime caching — all dynamic/authenticated content must be fetched fresh

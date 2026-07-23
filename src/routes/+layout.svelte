@@ -2,7 +2,6 @@
   import { Menu, X, Settings, LayoutDashboard } from '@lucide/svelte';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
-  import favicon from '$lib/assets/favicon.svg';
   import '../app.css';
 
   let { children, data } = $props();
@@ -14,7 +13,8 @@
 </script>
 
 <svelte:head>
-  <link rel="icon" href={favicon} />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <meta name="theme-color" content="#020617" />
 </svelte:head>
 
@@ -30,7 +30,7 @@
           aria-label="Go to dashboard"
         >
           <img
-            src={favicon}
+            src="/favicon.png"
             alt=""
             width={24}
             height={24}
