@@ -23,6 +23,11 @@ function smolVmTerminalWebSockets(): Plugin {
 const swDenylist = [/^\/api\//, /^\/login/, /^\/setup/, /^\/logout/, /\/terminal\/ws$/];
 
 export default defineConfig({
+  build: {
+    rollupOptions: {
+      checks: { pluginTimings: false }
+    }
+  },
   plugins: [
     smolVmTerminalWebSockets(),
     tailwindcss(),

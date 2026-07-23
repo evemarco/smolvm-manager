@@ -1,7 +1,7 @@
 import { redirect, type Handle } from '@sveltejs/kit';
 import { getPylonAuthClient, generateCsrfToken } from '$lib/server/pylon-auth-client';
 
-const PUBLIC_ROUTES = new Set(['/login', '/setup']);
+const PUBLIC_ROUTES = new Set(['/login', '/setup', '/offline']);
 const PUBLIC_API_PREFIXES = ['/api/public'];
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'DELETE', 'PATCH']);
 
