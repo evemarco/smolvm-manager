@@ -1,0 +1,71 @@
+From 0a5670d49f781cf65f0cb91e8ca30962a528072c Mon Sep 17 00:00:00 2001
+From: local <local@patch>
+Date: Thu, 23 Jul 2026 13:44:27 +0000
+Subject: [PATCH] fix: move fnv64 to proto.rs so guest build (no host feature)
+ compiles
+
+---
+ crates/smolvm-cuda/src/client.rs |  2 +-
+ crates/smolvm-cuda/src/host.rs   |  9 +--------
+ crates/smolvm-cuda/src/proto.rs  | 12 ++++++++++++
+ 3 files changed, 14 insertions(+), 9 deletions(-)
+
+diff --git a/crates/smolvm-cuda/src/client.rs b/crates/smolvm-cuda/src/client.rs
+index fd769cb..5b154ef 100644
+--- a/crates/smolvm-cuda/src/client.rs
++++ b/crates/smolvm-cuda/src/client.rs
+@@ -751,7 +751,7 @@ impl<S: Read + Write> Client<S> {
+         // also populates the server cache.
+         if image.len() >= 64 {
+             let mut blob = Vec::with_capacity(32);
+-            blob.extend_from_slice(&crate::host::fnv64(image).to_le_bytes());
++            blob.extend_from_slice(&crate::proto::fnv64(image).to_le_bytes());
+             blob.extend_from_slice(&(image.len() as u64).to_le_bytes());
+             blob.extend_from_slice(&image[..8]);
+             blob.extend_from_slice(&image[image.len() - 8..]);
+diff --git a/crates/smolvm-cuda/src/host.rs b/crates/smolvm-cuda/src/host.rs
+index c9ab4bf..991abc5 100644
+--- a/crates/smolvm-cuda/src/host.rs
++++ b/crates/smolvm-cuda/src/host.rs
+@@ -1261,14 +1261,7 @@ fn module_cache_get(key: &ModuleCacheKey) -> Option<std::sync::Arc<Vec<u8>>> {
+     module_cache().lock().unwrap().get(key).cloned()
+ }
+ 
+-pub fn fnv64(data: &[u8]) -> u64 {
+-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+-    for &b in data {
+-        h ^= b as u64;
+-        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+-    }
+-    h.max(1)
+-}
++pub use crate::proto::fnv64;
+ 
+ /// Mark the allocation containing `dptr` as loaded (H2D-written → read-only
+ /// weight). Called on every host-to-device copy on the golden.
+diff --git a/crates/smolvm-cuda/src/proto.rs b/crates/smolvm-cuda/src/proto.rs
+index 1ceba71..848037a 100644
+--- a/crates/smolvm-cuda/src/proto.rs
++++ b/crates/smolvm-cuda/src/proto.rs
+@@ -38,6 +38,18 @@ pub const FENCE_OP: u8 = 0x7E;
+ /// [`MAX_MSG`], so the preamble can never be confused with a legit frame.
+ pub const CLONE_PREAMBLE_MAGIC: [u8; 8] = *b"SMVCLN\x02\x00";
+ 
++/// FNV-1a 64-bit content hash shared by the guest client and the host module
++/// cache. Zero-dependency so the musl guest build (no `host` feature) can use
++/// it for the load-by-content dedup handshake.
++pub fn fnv64(data: &[u8]) -> u64 {
++    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
++    for &b in data {
++        h ^= b as u64;
++        h = h.wrapping_mul(0x0000_0100_0000_01b3);
++    }
++    h.max(1)
++}
++
+ /// Request opcodes. Stable wire values — append only.
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ #[repr(u8)]
+-- 
+2.52.0
+

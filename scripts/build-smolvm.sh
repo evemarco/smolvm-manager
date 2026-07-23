@@ -9,6 +9,7 @@ MODIFY_PATH="${MODIFY_PATH:-true}"
 LIBKRUN_MODE="${LIBKRUN_MODE:-auto}"
 LIBKRUN_GPU="${LIBKRUN_GPU:-0}"
 REPO_URL="${REPO_URL:-https://github.com/smol-machines/smolvm.git}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKUP_DIR=""
 LIBKRUN_SOURCE_BUILT=false
 
@@ -152,6 +153,19 @@ clone_smolvm() {
         git -C "$BUILD_DIR" checkout "$SMOLVM_VERSION"
     fi
     git -C "$BUILD_DIR" lfs pull
+}
+
+apply_local_patches() {
+    local patch_file
+    for patch_file in "$SCRIPT_DIR"/*.patch; do
+        [[ -e "$patch_file" ]] || return 0
+        if git -C "$BUILD_DIR" apply --check "$patch_file" 2>/dev/null; then
+            log "Applying local patch: $(basename "$patch_file") ..."
+            git -C "$BUILD_DIR" apply "$patch_file"
+        else
+            log "Skipping $(basename "$patch_file"): does not apply cleanly (already merged upstream or codebase changed)."
+        fi
+    done
 }
 
 host_arch() {
@@ -333,6 +347,7 @@ main() {
     log "Target version: $SMOLVM_VERSION"
     log "libkrun mode: $LIBKRUN_MODE"
     clone_smolvm
+    apply_local_patches
     rustup target add "$(host_arch)-unknown-linux-musl" >/dev/null
     prepare_valid_distribution
     install_distribution
