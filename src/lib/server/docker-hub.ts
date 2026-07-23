@@ -104,11 +104,18 @@ function cappedPageSize(size: number): number {
   return Math.max(1, Math.min(size, MAX_PAGE_SIZE));
 }
 
-function buildSearchUrl(baseUrl: string, query: string, page: number, pageSize: number): string {
+function buildSearchUrl(
+  baseUrl: string,
+  query: string,
+  page: number,
+  pageSize: number,
+  officialOnly: boolean
+): string {
   const url = new URL('/v2/search/repositories/', baseUrl);
   url.searchParams.set('query', query);
   url.searchParams.set('page', String(page));
   url.searchParams.set('page_size', String(cappedPageSize(pageSize)));
+  if (officialOnly) url.searchParams.set('is_official', 'true');
   return url.toString();
 }
 
@@ -302,7 +309,12 @@ function coerceTagPage(body: unknown): DockerHubTagPage {
 }
 
 export type DockerHubClient = {
-  searchRepositories(query: string, page?: number, pageSize?: number): Promise<DockerHubSearchPage>;
+  searchRepositories(
+    query: string,
+    page?: number,
+    pageSize?: number,
+    officialOnly?: boolean
+  ): Promise<DockerHubSearchPage>;
   listTags(
     namespace: string,
     repo: string,
@@ -318,14 +330,17 @@ export function createDockerHubClient(options: DockerHubClientOptions = {}): Doc
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return {
-    searchRepositories(query, page = 1, pageSize = 25) {
-      const url = buildSearchUrl(baseUrl, query, page, pageSize);
-      return callDockerHub(url, token, timeoutMs, fetchImpl, coerceSearchPage);
+    async searchRepositories(query, page = 1, pageSize = 25, officialOnly = false) {
+      const url = buildSearchUrl(baseUrl, query, page, pageSize, officialOnly);
+      const result = await callDockerHub(url, token, timeoutMs, fetchImpl, coerceSearchPage);
+      // The v2 search/tags responses omit the page number; echo the request.
+      return { ...result, page, nextPage: result.nextPage === undefined ? undefined : page + 1 };
     },
 
-    listTags(namespace, repo, page = 1, pageSize = 25) {
+    async listTags(namespace, repo, page = 1, pageSize = 25) {
       const url = buildTagsUrl(baseUrl, namespace, repo, page, pageSize);
-      return callDockerHub(url, token, timeoutMs, fetchImpl, coerceTagPage);
+      const result = await callDockerHub(url, token, timeoutMs, fetchImpl, coerceTagPage);
+      return { ...result, page, nextPage: result.nextPage === undefined ? undefined : page + 1 };
     }
   };
 }

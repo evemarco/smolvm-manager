@@ -11,7 +11,8 @@
     ChevronRight,
     X,
     Shield,
-    Loader2
+    Loader2,
+    ExternalLink
   } from '@lucide/svelte';
   import { toasts } from '$lib/toast';
   import type { ImagePickerSelection } from '$lib/types';
@@ -61,6 +62,39 @@
   // Rate limit state
   let rateLimitRetryAfter = $state<number | undefined>(undefined);
 
+  // Sort + official filter state
+  let sortOption = $state<'stars' | 'pulls' | 'name'>('stars');
+  let officialOnly = $state(false);
+
+  let sortedSearchResults = $derived.by(() => {
+    let list = searchResults;
+    if (officialOnly) {
+      list = list.filter((r) => r.is_official === true);
+    }
+    const sorted = [...list];
+    if (sortOption === 'stars') {
+      sorted.sort((a, b) => (b.star_count ?? 0) - (a.star_count ?? 0));
+    } else if (sortOption === 'pulls') {
+      sorted.sort((a, b) => (b.pull_count ?? 0) - (a.pull_count ?? 0));
+    } else {
+      sorted.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return sorted;
+  });
+
+  let searchTotalPages = $derived(
+    searchTotalCount !== undefined ? Math.ceil(searchTotalCount / searchPageSize) : undefined
+  );
+  let tagTotalPages = $derived(
+    tagTotalCount !== undefined ? Math.ceil(tagTotalCount / tagPageSize) : undefined
+  );
+
+  function dockerHubUrl(namespace: string, name: string): string {
+    return namespace === 'library'
+      ? `https://hub.docker.com/_/${name}`
+      : `https://hub.docker.com/r/${namespace}/${name}`;
+  }
+
   function formatBytes(bytes?: number): string {
     if (bytes === undefined || bytes === null) return '-';
     if (bytes === 0) return '0 B';
@@ -94,8 +128,9 @@
     rateLimitRetryAfter = undefined;
 
     try {
+      const officialParam = officialOnly ? '&official=1' : '';
       const response = await fetch(
-        `/api/smolvm/docker-hub/search?q=${encodeURIComponent(searchQuery.trim())}&page=${page}&page_size=${searchPageSize}`
+        `/api/smolvm/docker-hub/search?q=${encodeURIComponent(searchQuery.trim())}&page=${page}&page_size=${searchPageSize}${officialParam}`
       );
       const body = await response.json();
 
@@ -181,6 +216,8 @@
     tagNextPage = undefined;
     tagTotalCount = undefined;
     rateLimitRetryAfter = undefined;
+    sortOption = 'stars';
+    officialOnly = false;
   }
 
   function goBackToSearch() {
@@ -298,8 +335,32 @@
               Retry
             </button>
           </div>
-        {:else if searchResults.length > 0}
-          <div class="flex items-center justify-between text-xs text-slate-400">
+        {:else if sortedSearchResults.length > 0}
+          <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div class="flex flex-wrap items-center gap-3 text-slate-400">
+              <label class="inline-flex items-center gap-1.5">
+                <span class="text-slate-400">Sort</span>
+                <select
+                  bind:value={sortOption}
+                  class="rounded-lg border border-white/10 bg-slate-800 px-2 py-1 text-slate-200 focus:border-cyan-400 focus:outline-none"
+                >
+                  <option value="stars">Most stars</option>
+                  <option value="pulls">Most pulls</option>
+                  <option value="name">Name A-Z</option>
+                </select>
+              </label>
+              <label class="inline-flex cursor-pointer items-center gap-1.5 text-slate-400">
+                <input
+                  type="checkbox"
+                  bind:checked={officialOnly}
+                  onchange={() => {
+                    if (searchQuery.trim()) performSearch(1);
+                  }}
+                  class="size-3.5 cursor-pointer rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-400"
+                />
+                <span>Official images only</span>
+              </label>
+            </div>
             <span>
               {#if searchTotalCount !== undefined}
                 {searchTotalCount} results
@@ -307,6 +368,9 @@
                 {searchResults.length} results
               {/if}
             </span>
+          </div>
+
+          <div class="flex items-center justify-end text-xs text-slate-400">
             <div class="flex items-center gap-2">
               <button
                 class="rounded-lg border border-white/10 bg-slate-800 px-2 py-1 text-slate-300 transition hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -316,7 +380,9 @@
               >
                 <ChevronLeft size={14} />
               </button>
-              <span>Page {searchPage}</span>
+              <span>
+                Page {searchPage}{#if searchTotalPages !== undefined} / {searchTotalPages}{/if}
+              </span>
               <button
                 class="rounded-lg border border-white/10 bg-slate-800 px-2 py-1 text-slate-300 transition hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
                 disabled={!searchNextPage}
@@ -330,10 +396,18 @@
 
           <div class="flex-1 overflow-y-auto pr-1">
             <div class="flex flex-col gap-2">
-              {#each searchResults as result (result.namespace + '/' + result.name)}
-                <button
+              {#each sortedSearchResults as result (result.namespace + '/' + result.name)}
+                <div
+                  role="button"
+                  tabindex="0"
                   class="flex items-start gap-3 rounded-xl border border-white/5 bg-slate-800/50 p-4 text-left transition hover:border-cyan-500/30 hover:bg-slate-800"
                   onclick={() => loadTags(result.namespace, result.name)}
+                  onkeydown={(e) => {
+                    if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault();
+                      loadTags(result.namespace, result.name);
+                    }
+                  }}
                 >
                   <div
                     class="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-slate-700"
@@ -359,6 +433,19 @@
                           Community
                         </span>
                       {/if}
+                      <!-- eslint-disable svelte/no-navigation-without-resolve -->
+                      <a
+                        href={dockerHubUrl(result.namespace, result.name)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onclick={(e) => e.stopPropagation()}
+                        onkeydown={(e) => e.stopPropagation()}
+                        class="ml-auto inline-flex size-6 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-700 hover:text-cyan-300"
+                        aria-label="Open {result.namespace}/{result.name} on Docker Hub"
+                      >
+                        <ExternalLink size={14} />
+                      </a>
+                      <!-- eslint-enable svelte/no-navigation-without-resolve -->
                     </div>
                     {#if result.description}
                       <p class="mt-1 truncate text-xs text-slate-400">{result.description}</p>
@@ -372,7 +459,7 @@
                       {/if}
                     </div>
                   </div>
-                </button>
+                </div>
               {/each}
             </div>
           </div>
@@ -423,7 +510,9 @@
               >
                 <ChevronLeft size={14} />
               </button>
-              <span>Page {tagPage}</span>
+              <span>
+                Page {tagPage}{#if tagTotalPages !== undefined} / {tagTotalPages}{/if}
+              </span>
               <button
                 class="rounded-lg border border-white/10 bg-slate-800 px-2 py-1 text-slate-300 transition hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
                 disabled={!tagNextPage}

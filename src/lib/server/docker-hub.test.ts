@@ -143,6 +143,41 @@ describe('docker-hub client', () => {
     expect(page.pageSize).toBe(25);
   });
 
+  test('echoes the requested page when the API omits it', async () => {
+    const mockFetch = createMockFetch([
+      {
+        urlMatcher: /\/v2\/search\/repositories\//,
+        response: new Response(JSON.stringify({ count: 5000, results: [], next: 'x' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      }
+    ]);
+
+    const client = createDockerHubClient({ fetch: mockFetch as unknown as typeof fetch });
+    const page = await client.searchRepositories('tor', 3, 25);
+
+    expect(page.page).toBe(3);
+    expect(page.nextPage).toBe(4);
+  });
+
+  test('passes is_official when officialOnly is set', async () => {
+    let capturedUrl = '';
+    const mockFetch = async (url: string | URL | Request) => {
+      capturedUrl =
+        typeof url === 'string' ? url : url instanceof Request ? url.url : url.toString();
+      return new Response(JSON.stringify({ count: 0, results: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    };
+
+    const client = createDockerHubClient({ fetch: mockFetch as unknown as typeof fetch });
+    await client.searchRepositories('nginx', 1, 25, true);
+
+    expect(new URL(capturedUrl).searchParams.get('is_official')).toBe('true');
+  });
+
   test('listTags constructs safe URL and parses tag metadata', async () => {
     const mockFetch = createMockFetch([
       {
