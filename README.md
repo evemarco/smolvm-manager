@@ -14,7 +14,7 @@ A web-based manager for [SmolVM](https://github.com/smol-machines/smolvm) virtua
 ## Requirements
 
 - [Bun](https://bun.sh/) 1.3.14 or later
-- [Pylon](https://github.com/pylonsync/pylon) `0.3.298`, available as `pylon` or through `PYLON_COMMAND`
+- [Pylon](https://github.com/pylonsync/pylon) `0.3.333`, available as `pylon` or through `PYLON_COMMAND`
 - [SmolVM](https://github.com/smol-machines/smolvm) installed and serving its API on `unix:///tmp/smolvm.sock`
 - KVM access through `/dev/kvm` on Linux hosts that run SmolVM
 - Optional: `libxmlsec1-openssl` runtime library if your Pylon package depends on it
@@ -48,7 +48,7 @@ If the downloaded executables fail with a glibc or shared-library error, build t
 ./scripts/build-smolvm.sh --version v1.6.3
 ```
 
-The Pylon script compiles the project-pinned `v0.3.298` release against the host glibc. The SmolVM script validates the version-matched Git LFS `libkrun` stack, creates the complete distribution, and automatically compiles SmolVM's patched `libkrun` and `libkrunfw` submodules over HTTPS only when compatibility checks require it.
+The Pylon script compiles the project-pinned `v0.3.333` release against the host glibc. The SmolVM script validates the version-matched Git LFS `libkrun` stack, creates the complete distribution, and automatically compiles SmolVM's patched `libkrun` and `libkrunfw` submodules over HTTPS only when compatibility checks require it.
 
 The builds require native development packages beyond Bun. Follow [docs/SOURCE_BUILDS.md](docs/SOURCE_BUILDS.md) before running them on a production host.
 

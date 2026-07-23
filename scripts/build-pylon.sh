@@ -8,12 +8,14 @@ set -euo pipefail
 # Use this when the prebuilt binary fails due to glibc incompatibility.
 #
 # Default tag matches the Pylon version pinned in package.json.
-# Override: TAG=v0.3.298 ./scripts/build-pylon.sh
+# Override: TAG=v0.3.333 ./scripts/build-pylon.sh
+#           TAG=latest    -> newest release tag from the remote
+#           TAG=""        -> latest commit on the default branch
 # ─────────────────────────────────────────────────────────────
 
 REPO_DIR="${REPO_DIR:-/tmp/pylon}"
 REPO_URL="${REPO_URL:-https://github.com/pylonsync/pylon.git}"
-TAG="${TAG:-v0.3.298}"
+TAG="${TAG:-v0.3.333}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 
 # Colours
@@ -32,18 +34,33 @@ done
 log "rustc $(rustc --version | awk '{print $2}')"
 log "bun $(bun --version)"
 
+# Nothing in this script reads stdin; detach it so cargo's `rustc -` probe
+# cannot consume pending terminal input when run under tmux/zellij.
+exec </dev/null
+
+if [ "$TAG" = "latest" ]; then
+  TAG=$(git ls-remote --tags "$REPO_URL" | grep -oE 'refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's|refs/tags/||' | sort -V | tail -1)
+  [ -n "$TAG" ] || err "Could not resolve the latest release tag from $REPO_URL"
+  log "Latest release: $TAG"
+fi
+
 # ── Clone / fetch the repo ──────────────────────────────────
 
-if [ -d "$REPO_DIR" ]; then
+if [ -d "$REPO_DIR" ] && git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
   log "Updating existing clone at $REPO_DIR"
   cd "$REPO_DIR"
   git fetch --tags --quiet
   if [ -n "$TAG" ]; then
     git checkout --force "$TAG" 2>/dev/null || err "Tag $TAG not found — try: git fetch --tags"
   else
-    git pull --quiet
+    git fetch --quiet --depth 1 origin HEAD
+    git checkout --force FETCH_HEAD
   fi
 else
+  if [ -e "$REPO_DIR" ]; then
+    warn "$REPO_DIR exists but is not a git clone — removing stale directory"
+    rm -rf "$REPO_DIR"
+  fi
   log "Cloning Pylon repo…"
   if [ -n "$TAG" ]; then
     git clone --depth 1 --branch "$TAG" "$REPO_URL" "$REPO_DIR"

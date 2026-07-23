@@ -39,6 +39,9 @@ Examples:
 Environment variables:
   SMOLVM_VERSION, BUILD_DIR, INSTALL_DIR, BIN_DIR, MODIFY_PATH
   LIBKRUN_MODE, LIBKRUN_GPU, REPO_URL
+
+Local patches: every scripts/*.patch file is applied to the cloned SmolVM
+source after checkout; patches that no longer apply cleanly are skipped.
 EOF
 }
 
