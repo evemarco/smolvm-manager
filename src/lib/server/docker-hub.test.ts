@@ -226,6 +226,69 @@ describe('docker-hub client', () => {
     expect(page.results[0].last_updated).toBeUndefined();
   });
 
+  test('resolveDockerHubToken prefers the stored setting, falls back to env', async () => {
+    process.env.PYLON_STORE_MODE = 'mock';
+    process.env.DOCKER_HUB_TOKEN = 'env-token';
+    try {
+      const { getManagerStoreClient } = await import('./manager-store-client');
+      const { resolveDockerHubToken, DOCKER_HUB_TOKEN_SETTING_KEY } = await import('./docker-hub');
+      const store = getManagerStoreClient();
+
+      await store.setSetting(DOCKER_HUB_TOKEN_SETTING_KEY, JSON.stringify({ token: 'stored-token' }));
+      expect(await resolveDockerHubToken()).toBe('stored-token');
+
+      await store.setSetting(DOCKER_HUB_TOKEN_SETTING_KEY, JSON.stringify({ token: '' }));
+      expect(await resolveDockerHubToken()).toBe('env-token');
+    } finally {
+      delete process.env.DOCKER_HUB_TOKEN;
+      delete process.env.PYLON_STORE_MODE;
+    }
+  });
+
+  test('resolveDockerHubCredentials returns jwt kind when username and token are stored', async () => {
+    process.env.PYLON_STORE_MODE = 'mock';
+    try {
+      const { getManagerStoreClient } = await import('./manager-store-client');
+      const { resolveDockerHubCredentials, DOCKER_HUB_TOKEN_SETTING_KEY } = await import(
+        './docker-hub'
+      );
+      const store = getManagerStoreClient();
+
+      await store.setSetting(
+        DOCKER_HUB_TOKEN_SETTING_KEY,
+        JSON.stringify({ username: 'evemarco', token: 'dckr_pat_x' })
+      );
+      expect(await resolveDockerHubCredentials()).toEqual({
+        kind: 'jwt',
+        username: 'evemarco',
+        pat: 'dckr_pat_x'
+      });
+    } finally {
+      delete process.env.PYLON_STORE_MODE;
+    }
+  });
+
+  test('getDockerHubJwt exchanges a PAT for a JWT and caches it', async () => {
+    const calls: string[] = [];
+    const mockFetch = async (url: string | URL | Request) => {
+      calls.push(typeof url === 'string' ? url : url instanceof Request ? url.url : url.toString());
+      return new Response(JSON.stringify({ token: 'jwt-abc' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    };
+
+    const { getDockerHubJwt, invalidateDockerHubJwt } = await import('./docker-hub');
+    invalidateDockerHubJwt();
+    const first = await getDockerHubJwt('https://hub.example', 'u', 'p', mockFetch as unknown as typeof fetch);
+    const second = await getDockerHubJwt('https://hub.example', 'u', 'p', mockFetch as unknown as typeof fetch);
+
+    expect(first).toBe('jwt-abc');
+    expect(second).toBe('jwt-abc');
+    expect(calls).toHaveLength(1);
+    invalidateDockerHubJwt();
+  });
+
   test('listTags constructs safe URL and parses tag metadata', async () => {
     const mockFetch = createMockFetch([
       {

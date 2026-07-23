@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Menu, X } from '@lucide/svelte';
+  import { Menu, X, Settings } from '@lucide/svelte';
   import favicon from '$lib/assets/favicon.svg';
   import '../app.css';
 
@@ -36,6 +36,15 @@
       <!-- Desktop nav -->
       <div class="hidden items-center gap-4 sm:flex">
         <span class="text-sm text-slate-400">{data.admin.email}</span>
+        <!-- eslint-disable svelte/no-navigation-without-resolve -->
+        <a
+          href="/settings"
+          class="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white"
+        >
+          <Settings size={14} />
+          Settings
+        </a>
+        <!-- eslint-enable svelte/no-navigation-without-resolve -->
         <form method="POST" action="/logout" class="inline">
           <input type="hidden" name="csrf" value={data.csrfToken ?? ''} />
           <button
@@ -67,6 +76,16 @@
       <div class="border-t border-white/10 px-4 py-3 sm:hidden">
         <div class="flex flex-col gap-3">
           <span class="text-sm text-slate-400">{data.admin.email}</span>
+          <!-- eslint-disable svelte/no-navigation-without-resolve -->
+          <a
+            href="/settings"
+            class="inline-flex items-center gap-2 rounded-md bg-slate-800 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white"
+            onclick={closeMobileMenu}
+          >
+            <Settings size={16} />
+            Settings
+          </a>
+          <!-- eslint-enable svelte/no-navigation-without-resolve -->
           <form method="POST" action="/logout" class="inline" onsubmit={closeMobileMenu}>
             <input type="hidden" name="csrf" value={data.csrfToken ?? ''} />
             <button

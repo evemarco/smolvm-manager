@@ -219,6 +219,8 @@ function installDockerHubMock() {
 
   mock.module('$lib/server/docker-hub', () => ({
     getDockerHubClient: () => client,
+    createDockerHubClient: () => client,
+    resolveDockerHubToken: async () => undefined,
     normalizeDockerHubError: (error: unknown) => ({
       code: 'DOCKER_HUB_REQUEST_FAILED',
       message: error instanceof Error ? error.message : 'Docker Hub request failed.',
@@ -580,7 +582,8 @@ describe('SmolVM facade routes', () => {
       page: 2,
       pageSize: 10,
       totalCount: 1,
-      nextPage: undefined
+      nextPage: undefined,
+      authenticated: false
     });
 
     const tagsResponse = await dockerTagsRoute.GET({
@@ -599,7 +602,8 @@ describe('SmolVM facade routes', () => {
       page: 1,
       pageSize: 25,
       totalCount: 1,
-      nextPage: undefined
+      nextPage: undefined,
+      authenticated: false
     });
   });
 

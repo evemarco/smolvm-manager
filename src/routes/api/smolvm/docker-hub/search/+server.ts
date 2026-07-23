@@ -1,5 +1,11 @@
 import { json } from '@sveltejs/kit';
-import { getDockerHubClient, normalizeDockerHubError } from '$lib/server/docker-hub';
+import {
+  createDockerHubClient,
+  getDockerHubJwt,
+  invalidateDockerHubJwt,
+  normalizeDockerHubError,
+  resolveDockerHubCredentials
+} from '$lib/server/docker-hub';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ locals, url }) => {
@@ -17,9 +23,19 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const officialOnly = url.searchParams.get('official') === '1' || url.searchParams.get('official') === 'true';
 
   try {
-    const client = getDockerHubClient();
-    const result = await client.searchRepositories(query, page, pageSize, officialOnly);
-    return json(result);
+    const credentials = await resolveDockerHubCredentials();
+    const token =
+      credentials?.kind === 'jwt'
+        ? await getDockerHubJwt('https://hub.docker.com', credentials.username, credentials.pat)
+        : credentials?.token;
+    const client = createDockerHubClient({ token });
+    try {
+      const result = await client.searchRepositories(query, page, pageSize, officialOnly);
+      return json({ ...result, authenticated: Boolean(token) });
+    } catch (err) {
+      if (credentials?.kind === 'jwt') invalidateDockerHubJwt();
+      throw err;
+    }
   } catch (err) {
     const normalized = normalizeDockerHubError(err);
     return json(normalized, { status: normalized.status });

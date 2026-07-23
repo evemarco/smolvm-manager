@@ -42,6 +42,7 @@
   let searchPageSize = $state(25);
   let searchNextPage = $state<number | undefined>(undefined);
   let searchTotalCount = $state<number | undefined>(undefined);
+  let searchAuthenticated = $state<boolean | undefined>(undefined);
 
   // Tag state
   let selectedRepo: { namespace: string; name: string } | null = $state(null);
@@ -159,6 +160,7 @@
       searchPageSize = body.pageSize ?? searchPageSize;
       searchNextPage = body.nextPage;
       searchTotalCount = body.totalCount;
+      searchAuthenticated = body.authenticated;
     } catch (err) {
       searchError = err instanceof Error ? err.message : 'Search failed';
       toasts.push(searchError, 'error');
@@ -221,6 +223,7 @@
     searchPage = 1;
     searchNextPage = undefined;
     searchTotalCount = undefined;
+    searchAuthenticated = undefined;
     selectedRepo = null;
     tags = [];
     tagError = null;
@@ -608,12 +611,29 @@
     </div>
 
     <!-- Footer -->
-    <div class="border-t border-white/10 px-6 py-3 text-xs text-slate-500">
-      {#if selectedRepo}
-        Trusted/verified status: metadata unavailable from public API
-      {:else}
-        Results from Docker Hub public API. Official image status is best-effort.
-      {/if}
+    <div class="flex items-center justify-between gap-3 border-t border-white/10 px-6 py-3 text-xs">
+      <div class="flex items-center gap-2">
+        {#if searchAuthenticated === true}
+          <span
+            class="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300"
+          >
+            Authenticated
+          </span>
+        {:else if searchAuthenticated === false}
+          <span
+            class="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300"
+          >
+            Anonymous — tighter rate limits
+          </span>
+        {/if}
+      </div>
+      <div class="text-slate-500">
+        {#if selectedRepo}
+          Trusted/verified status: metadata unavailable from public API
+        {:else}
+          Results from Docker Hub public API. Official image status is best-effort.
+        {/if}
+      </div>
     </div>
   </div>
 </div>

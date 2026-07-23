@@ -212,7 +212,10 @@ export function getManagerStoreMode(): ManagerStoreMode {
   const mode = process.env.PYLON_STORE_MODE?.trim().toLowerCase();
   if (mode === 'typed' || mode === 'rest' || mode === 'mock') return mode;
   if (!mode && process.env.PYLON_STORE_MOCK === 'true') return 'mock';
-  return 'typed';
+  // The typed transport imports @pylonsync/sync, which ships TypeScript
+  // sources only: Bun executes them, Node (vite preview) cannot. Default to
+  // rest there instead of failing every store call as "unreachable".
+  return typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined' ? 'typed' : 'rest';
 }
 
 async function pylonFetchJson(

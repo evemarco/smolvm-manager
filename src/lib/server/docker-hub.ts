@@ -126,6 +126,88 @@ function getConfiguredToken(): string | undefined {
   return process.env.DOCKER_HUB_TOKEN?.trim() || undefined;
 }
 
+export const DOCKER_HUB_TOKEN_SETTING_KEY = 'docker_hub_token';
+
+export type DockerHubCredentials =
+  | { kind: 'jwt'; username: string; pat: string }
+  | { kind: 'bearer'; token: string };
+
+/**
+ * Credential resolution order: the settings-page values stored in Pylon win,
+ * the DOCKER_HUB_TOKEN env var is the fallback (direct bearer), and neither
+ * means anonymous. Docker Hub PATs are ignored by the web API when presented
+ * directly — they must be exchanged for a JWT via /v2/users/login.
+ */
+export async function resolveDockerHubCredentials(): Promise<DockerHubCredentials | undefined> {
+  try {
+    const { getManagerStoreClient } = await import('./manager-store-client');
+    const setting = await getManagerStoreClient().getSetting(DOCKER_HUB_TOKEN_SETTING_KEY);
+    if (setting?.valueJson) {
+      const parsed = JSON.parse(setting.valueJson) as { username?: unknown; token?: unknown };
+      const token = typeof parsed.token === 'string' ? parsed.token.trim() : '';
+      const username = typeof parsed.username === 'string' ? parsed.username.trim() : '';
+      if (token && username) return { kind: 'jwt', username, pat: token };
+      if (token) return { kind: 'bearer', token };
+    }
+  } catch {
+    // fall through to the env fallback
+  }
+  const envToken = process.env.DOCKER_HUB_TOKEN?.trim();
+  return envToken ? { kind: 'bearer', token: envToken } : undefined;
+}
+
+const JWT_CACHE_TTL_MS = 30 * 60 * 1000;
+let jwtCache: { username: string; jwt: string; expiresAt: number } | undefined;
+
+export async function getDockerHubJwt(
+  baseUrl: string,
+  username: string,
+  pat: string,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch
+): Promise<string> {
+  if (jwtCache && jwtCache.username === username && jwtCache.expiresAt > Date.now()) {
+    return jwtCache.jwt;
+  }
+  const response = await fetchImpl(new URL('/v2/users/login', baseUrl).toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ username, password: pat })
+  });
+  if (response.status !== 200) {
+    throw new DockerHubError(
+      DOCKER_HUB_ERROR_CODES.REQUEST_FAILED,
+      `Docker Hub login failed (${response.status}) — check the username and access token.`,
+      response.status
+    );
+  }
+  const body = (await response.json()) as { token?: unknown };
+  if (typeof body.token !== 'string' || !body.token) {
+    throw new DockerHubError(
+      DOCKER_HUB_ERROR_CODES.BAD_RESPONSE,
+      'Docker Hub login returned no token.',
+      502
+    );
+  }
+  jwtCache = { username, jwt: body.token, expiresAt: Date.now() + JWT_CACHE_TTL_MS };
+  return body.token;
+}
+
+export function invalidateDockerHubJwt(): void {
+  jwtCache = undefined;
+}
+
+/**
+ * Kept for backwards compatibility with older callers/tests.
+ * Token resolution order: the settings-page value stored in Pylon wins, the
+ * DOCKER_HUB_TOKEN env var is the fallback, and neither means anonymous.
+ * Store failures degrade to the env var rather than breaking search.
+ */
+export async function resolveDockerHubToken(): Promise<string | undefined> {
+  const credentials = await resolveDockerHubCredentials();
+  if (!credentials) return undefined;
+  return credentials.kind === 'bearer' ? credentials.token : credentials.pat;
+}
+
 function cappedPageSize(size: number): number {
   return Math.max(1, Math.min(size, MAX_PAGE_SIZE));
 }
