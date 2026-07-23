@@ -18,7 +18,7 @@ RestartSec=5
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/smolvm-manager/data /var/lib/smolvm-manager/.pylon
+ReadWritePaths=/var/lib/smolvm-manager
 
 [Install]
 WantedBy=multi-user.target
