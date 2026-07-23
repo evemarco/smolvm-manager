@@ -18,6 +18,7 @@
     "format:check": "prettier --check .",
     "test": "bun test src",
     "test:e2e": "playwright test",
+    "test:docker-hub-e2e": "DOCKER_HUB_E2E=true bun test src/lib/server/docker-hub.e2e.test.ts",
     "gate": "bun run scripts/quality-gate.ts",
     "admin:reset": "bun run scripts/reset-admin.ts"
   },
