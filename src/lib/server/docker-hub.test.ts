@@ -178,6 +178,54 @@ describe('docker-hub client', () => {
     expect(new URL(capturedUrl).searchParams.get('is_official')).toBe('true');
   });
 
+  test('enriches search results with repository last_updated', async () => {
+    const mockFetch = createMockFetch([
+      {
+        urlMatcher: /\/v2\/search\/repositories\//,
+        response: new Response(
+          JSON.stringify({
+            count: 1,
+            results: [{ repo_name: 'leplusorg/tor', short_description: 'Tor image' }]
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      },
+      {
+        urlMatcher: /\/v2\/repositories\/leplusorg\/tor$/,
+        response: new Response(JSON.stringify({ last_updated: '2026-07-20T10:00:00Z' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      }
+    ]);
+
+    const client = createDockerHubClient({ fetch: mockFetch as unknown as typeof fetch });
+    const page = await client.searchRepositories('tor');
+
+    expect(page.results[0].last_updated).toBe('2026-07-20T10:00:00Z');
+  });
+
+  test('keeps search results when a detail call fails', async () => {
+    const mockFetch = createMockFetch([
+      {
+        urlMatcher: /\/v2\/search\/repositories\//,
+        response: new Response(
+          JSON.stringify({
+            count: 1,
+            results: [{ repo_name: 'leplusorg/tor', short_description: 'Tor image' }]
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      }
+    ]);
+
+    const client = createDockerHubClient({ fetch: mockFetch as unknown as typeof fetch });
+    const page = await client.searchRepositories('tor');
+
+    expect(page.results).toHaveLength(1);
+    expect(page.results[0].last_updated).toBeUndefined();
+  });
+
   test('listTags constructs safe URL and parses tag metadata', async () => {
     const mockFetch = createMockFetch([
       {

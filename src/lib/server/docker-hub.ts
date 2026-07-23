@@ -51,6 +51,7 @@ export type DockerHubSearchResult = {
   description?: string;
   star_count?: number;
   pull_count?: number;
+  last_updated?: string;
 };
 
 export type DockerHubSearchPage = {
@@ -133,6 +134,19 @@ function buildTagsUrl(
   url.searchParams.set('page', String(page));
   url.searchParams.set('page_size', String(cappedPageSize(pageSize)));
   return url.toString();
+}
+
+function buildRepositoryUrl(baseUrl: string, namespace: string, repo: string): string {
+  return new URL(
+    `/v2/repositories/${encodeURIComponent(namespace)}/${encodeURIComponent(repo)}`,
+    baseUrl
+  ).toString();
+}
+
+function coerceRepositoryDetail(body: unknown): { lastUpdated?: string } {
+  if (!body || typeof body !== 'object') return {};
+  const lastUpdated = (body as Record<string, unknown>).last_updated;
+  return { lastUpdated: typeof lastUpdated === 'string' ? lastUpdated : undefined };
 }
 
 function parseRetryAfter(headers: Headers): number | undefined {
@@ -334,7 +348,30 @@ export function createDockerHubClient(options: DockerHubClientOptions = {}): Doc
       const url = buildSearchUrl(baseUrl, query, page, pageSize, officialOnly);
       const result = await callDockerHub(url, token, timeoutMs, fetchImpl, coerceSearchPage);
       // The v2 search/tags responses omit the page number; echo the request.
-      return { ...result, page, nextPage: result.nextPage === undefined ? undefined : page + 1 };
+      const paged = {
+        ...result,
+        page,
+        nextPage: result.nextPage === undefined ? undefined : page + 1
+      };
+      // Search results carry no date; enrich from the per-repository detail
+      // endpoint in parallel and drop dates that fail rather than the search.
+      const enriched = await Promise.all(
+        paged.results.map(async (r) => {
+          try {
+            const detail = await callDockerHub(
+              buildRepositoryUrl(baseUrl, r.namespace, r.name),
+              token,
+              timeoutMs,
+              fetchImpl,
+              coerceRepositoryDetail
+            );
+            return { ...r, last_updated: detail.lastUpdated };
+          } catch {
+            return r;
+          }
+        })
+      );
+      return { ...paged, results: enriched };
     },
 
     async listTags(namespace, repo, page = 1, pageSize = 25) {

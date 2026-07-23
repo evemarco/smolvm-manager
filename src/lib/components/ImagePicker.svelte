@@ -36,6 +36,7 @@
     is_official?: boolean;
     star_count?: number;
     pull_count?: number;
+    last_updated?: string;
   }> = $state([]);
   let searchPage = $state(1);
   let searchPageSize = $state(25);
@@ -63,7 +64,7 @@
   let rateLimitRetryAfter = $state<number | undefined>(undefined);
 
   // Sort + official filter state
-  let sortOption = $state<'stars' | 'pulls' | 'name'>('stars');
+  let sortOption = $state<'stars' | 'pulls' | 'name' | 'updated'>('stars');
   let officialOnly = $state(false);
 
   let sortedSearchResults = $derived.by(() => {
@@ -76,6 +77,17 @@
       sorted.sort((a, b) => (b.star_count ?? 0) - (a.star_count ?? 0));
     } else if (sortOption === 'pulls') {
       sorted.sort((a, b) => (b.pull_count ?? 0) - (a.pull_count ?? 0));
+    } else if (sortOption === 'updated') {
+      sorted.sort((a, b) => {
+        const ta = a.last_updated ? Date.parse(a.last_updated) : NaN;
+        const tb = b.last_updated ? Date.parse(b.last_updated) : NaN;
+        const aMissing = Number.isNaN(ta);
+        const bMissing = Number.isNaN(tb);
+        if (aMissing && bMissing) return 0;
+        if (aMissing) return 1;
+        if (bMissing) return -1;
+        return tb - ta;
+      });
     } else {
       sorted.sort((a, b) => a.name.localeCompare(b.name));
     }
@@ -346,6 +358,7 @@
                 >
                   <option value="stars">Most stars</option>
                   <option value="pulls">Most pulls</option>
+                  <option value="updated">Recently updated</option>
                   <option value="name">Name A-Z</option>
                 </select>
               </label>
@@ -456,6 +469,9 @@
                       {/if}
                       {#if result.pull_count !== undefined}
                         <span>{result.pull_count.toLocaleString()} pulls</span>
+                      {/if}
+                      {#if result.last_updated}
+                        <span>updated {formatDate(result.last_updated)}</span>
                       {/if}
                     </div>
                   </div>
