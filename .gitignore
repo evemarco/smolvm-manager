@@ -38,6 +38,9 @@ Thumbs.db
 !.env.example
 !.env.test
 
+# Personal deploy helper
+/scripts/sync-prod.sh
+
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
