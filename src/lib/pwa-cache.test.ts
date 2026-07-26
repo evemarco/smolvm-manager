@@ -31,7 +31,7 @@ describe('PWA cache safety', () => {
   });
 
   test('globPatterns only includes static asset types', () => {
-    expect(viteConfig).toContain("'**/*.{js,css,html,svg,ico,webmanifest}'");
+    expect(viteConfig).toContain("'**/*.{js,css,html,svg,ico,webmanifest,png}'");
   });
 
   test('manifest display is standalone for PWA installability', () => {
