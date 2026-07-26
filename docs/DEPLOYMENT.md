@@ -32,7 +32,7 @@ This file documents a complete production deployment layout for [SmolVM Manager]
 1. Clone the repository to `/var/lib/smolvm-manager`.
 2. Install Pylon and SmolVM, or build them locally by following [`SOURCE_BUILDS.md`](SOURCE_BUILDS.md) when the published executables are incompatible with the host.
 3. Install the executables where the sandbox can reach them. The unit sets `ProtectHome=true`, so anything under `/root` or `/home` is invisible to the service — copy `bun` and `pylon` as real files (not symlinks into `/root`) to `/usr/local/bin/`.
-4. Confirm that `pylon --version` works and that SmolVM serves `/tmp/smolvm.sock`.
+4. Confirm that `pylon --version` works and that SmolVM serves `/tmp/smolvm.sock`. The provided SmolVM unit copies the host resolver into both the installed and cached agent rootfs before every start; this prevents TSI image pulls from using a stale hard-coded public DNS server.
 5. Run `bun install` and `bun run build`.
 6. Create the `smolvm-manager` user and group:
 
@@ -116,6 +116,14 @@ sudo journalctl -u smolvm-manager -f
 ```
 
 [Pylon](https://github.com/pylonsync/pylon) and SvelteKit stdout/stderr are both captured in the same journal stream.
+
+Authenticated administrators can also open **Diagnostics** in the manager navigation. This bounded view records the latest SmolVM API failures, including the upstream error payload, so startup failures remain inspectable without shell access.
+
+View the raw SmolVM service journal when host access is available:
+
+```sh
+sudo journalctl -u smolvm-serve -f
+```
 
 ## Backup
 
