@@ -14,6 +14,7 @@
   import VmLogs from './VmLogs.svelte';
   import VmTerminal from './VmTerminal.svelte';
   import VmMetrics from './VmMetrics.svelte';
+  import VmGuestLogs from './VmGuestLogs.svelte';
   import type { SmolVmMachine, TabId } from '$lib/types';
 
   let {
@@ -25,7 +26,8 @@
     onDelete,
     onEdit,
     onCopy,
-    actionLoading = {}
+    actionLoading = {},
+    initialTab = 'overview'
   }: {
     machine: SmolVmMachine;
     onBack: () => void;
@@ -36,17 +38,19 @@
     onEdit?: (m: SmolVmMachine) => void;
     onCopy?: (m: SmolVmMachine) => void;
     actionLoading?: Record<string, boolean>;
+    initialTab?: TabId;
   } = $props();
 
   const machineStatus = $derived(machine.status ?? machine.state ?? 'unknown');
   const isRunning = $derived(machineStatus === 'running');
 
-  let activeTab: TabId = $state('overview');
+  let activeTab: TabId = $state(initialTab);
 
   const tabs: { id: TabId; label: string; disabled?: boolean }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'config', label: 'Config' },
     { id: 'logs', label: 'Logs' },
+    { id: 'guest-logs', label: 'Guest logs' },
     { id: 'terminal', label: 'Terminal' },
     { id: 'metrics', label: 'Metrics' }
   ];
@@ -193,6 +197,8 @@
       </div>
     {:else if activeTab === 'logs'}
       <VmLogs machineName={machine.name} />
+    {:else if activeTab === 'guest-logs'}
+      <VmGuestLogs machineName={machine.name} />
     {:else if activeTab === 'terminal'}
       <VmTerminal machineName={machine.name} />
     {:else if activeTab === 'metrics'}
