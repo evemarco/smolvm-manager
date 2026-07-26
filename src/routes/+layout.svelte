@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Menu, X, Settings, LayoutDashboard, ScrollText } from '@lucide/svelte';
+  import { Menu, X, Settings, LayoutDashboard, ScrollText, Activity } from '@lucide/svelte';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
   import '../app.css';
@@ -42,7 +42,7 @@
       </div>
 
       <!-- Desktop nav -->
-      <div class="hidden items-center gap-4 sm:flex">
+      <nav aria-label="Primary navigation" class="hidden items-center gap-4 lg:flex">
         <span class="text-sm text-slate-400">{data.admin.email}</span>
         {#if page.url.pathname !== '/'}
           <a
@@ -53,22 +53,39 @@
             Dashboard
           </a>
         {/if}
-        <!-- eslint-disable svelte/no-navigation-without-resolve -->
         <a
-          href="/settings"
-          class="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white"
+          href={resolve('/settings')}
+          aria-current={page.url.pathname === '/settings' ? 'page' : undefined}
+          class="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition hover:bg-slate-700 hover:text-white {page
+            .url.pathname === '/settings'
+            ? 'bg-cyan-500/15 text-cyan-200'
+            : 'bg-slate-800 text-slate-300'}"
         >
           <Settings size={14} />
           Settings
         </a>
         <a
-          href="/audit"
-          class="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white"
+          href={resolve('/audit')}
+          aria-current={page.url.pathname === '/audit' ? 'page' : undefined}
+          class="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition hover:bg-slate-700 hover:text-white {page
+            .url.pathname === '/audit'
+            ? 'bg-cyan-500/15 text-cyan-200'
+            : 'bg-slate-800 text-slate-300'}"
         >
           <ScrollText size={14} />
           Audit
         </a>
-        <!-- eslint-enable svelte/no-navigation-without-resolve -->
+        <a
+          href={resolve('/diagnostics')}
+          aria-current={page.url.pathname === '/diagnostics' ? 'page' : undefined}
+          class="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition hover:bg-slate-700 hover:text-white {page
+            .url.pathname === '/diagnostics'
+            ? 'bg-cyan-500/15 text-cyan-200'
+            : 'bg-slate-800 text-slate-300'}"
+        >
+          <Activity size={14} />
+          Diagnostics
+        </a>
         <form method="POST" action="/logout" class="inline">
           <input type="hidden" name="csrf" value={data.csrfToken ?? ''} />
           <button
@@ -78,14 +95,15 @@
             Logout
           </button>
         </form>
-      </div>
+      </nav>
 
       <!-- Mobile menu toggle -->
       <button
-        class="rounded-md p-2 text-slate-300 transition hover:bg-white/10 hover:text-white sm:hidden"
+        class="rounded-md p-2 text-slate-300 transition hover:bg-white/10 hover:text-white lg:hidden"
         onclick={() => (mobileMenuOpen = !mobileMenuOpen)}
         aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
         aria-expanded={mobileMenuOpen}
+        aria-controls="mobile-navigation"
       >
         {#if mobileMenuOpen}
           <X size={20} />
@@ -97,8 +115,8 @@
 
     <!-- Mobile nav dropdown -->
     {#if mobileMenuOpen}
-      <div class="border-t border-white/10 px-4 py-3 sm:hidden">
-        <div class="flex flex-col gap-3">
+      <div class="border-t border-white/10 px-4 py-3 lg:hidden">
+        <nav id="mobile-navigation" aria-label="Mobile navigation" class="flex flex-col gap-3">
           <span class="text-sm text-slate-400">{data.admin.email}</span>
           {#if page.url.pathname !== '/'}
             <a
@@ -110,24 +128,42 @@
               Dashboard
             </a>
           {/if}
-          <!-- eslint-disable svelte/no-navigation-without-resolve -->
           <a
-            href="/settings"
-            class="inline-flex items-center gap-2 rounded-md bg-slate-800 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white"
+            href={resolve('/settings')}
+            aria-current={page.url.pathname === '/settings' ? 'page' : undefined}
+            class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition hover:bg-slate-700 hover:text-white {page
+              .url.pathname === '/settings'
+              ? 'bg-cyan-500/15 text-cyan-200'
+              : 'bg-slate-800 text-slate-300'}"
             onclick={closeMobileMenu}
           >
             <Settings size={16} />
             Settings
           </a>
           <a
-            href="/audit"
-            class="inline-flex items-center gap-2 rounded-md bg-slate-800 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white"
+            href={resolve('/audit')}
+            aria-current={page.url.pathname === '/audit' ? 'page' : undefined}
+            class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition hover:bg-slate-700 hover:text-white {page
+              .url.pathname === '/audit'
+              ? 'bg-cyan-500/15 text-cyan-200'
+              : 'bg-slate-800 text-slate-300'}"
             onclick={closeMobileMenu}
           >
             <ScrollText size={16} />
             Audit
           </a>
-          <!-- eslint-enable svelte/no-navigation-without-resolve -->
+          <a
+            href={resolve('/diagnostics')}
+            aria-current={page.url.pathname === '/diagnostics' ? 'page' : undefined}
+            class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition hover:bg-slate-700 hover:text-white {page
+              .url.pathname === '/diagnostics'
+              ? 'bg-cyan-500/15 text-cyan-200'
+              : 'bg-slate-800 text-slate-300'}"
+            onclick={closeMobileMenu}
+          >
+            <Activity size={16} />
+            Diagnostics
+          </a>
           <form method="POST" action="/logout" class="inline" onsubmit={closeMobileMenu}>
             <input type="hidden" name="csrf" value={data.csrfToken ?? ''} />
             <button
@@ -137,7 +173,7 @@
               Logout
             </button>
           </form>
-        </div>
+        </nav>
       </div>
     {/if}
   </header>
