@@ -5,10 +5,12 @@ import {
   type SmolVmClient,
   type SmolVmErrorJson
 } from '$lib/server/smolvm-client';
+import { smolVmDiagnostics, type SmolVmDiagnostics } from '$lib/server/smolvm-diagnostics';
 
 type ApiContext = {
   locals: App.Locals;
   client?: SmolVmClient;
+  diagnostics?: SmolVmDiagnostics;
 };
 
 export function smolVmJson(data: unknown, init?: ResponseInit): Response {
@@ -36,6 +38,14 @@ export async function requireSmolVmAdmin<T>(
     const result = await handler(context.client ?? getSmolVmClient());
     return smolVmJson(result);
   } catch (error) {
-    return smolVmErrorResponse(error);
+    const normalized = normalizeSmolVmError(error);
+    (context.diagnostics ?? smolVmDiagnostics).record({
+      level: 'error',
+      code: normalized.code,
+      message: normalized.message,
+      status: normalized.status,
+      ...(normalized.details === undefined ? {} : { details: normalized.details })
+    });
+    return json(normalized, { status: normalized.status });
   }
 }

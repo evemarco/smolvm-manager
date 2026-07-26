@@ -6,6 +6,7 @@ import {
   requireSmolVmAdmin
 } from './smolvm-api';
 import { SMOLVM_ERROR_CODES, SmolVmError, createSmolVmClient } from './smolvm-client';
+import { createSmolVmDiagnostics } from './smolvm-diagnostics';
 
 describe('smolvm-api facade', () => {
   test('smolVmJson returns Response with JSON body', async () => {
@@ -67,8 +68,9 @@ describe('smolvm-api facade', () => {
   });
 
   test('requireSmolVmAdmin catches handler errors and returns normalized response', async () => {
+    const diagnostics = createSmolVmDiagnostics();
     const response = await requireSmolVmAdmin(
-      { locals: { admin: { id: '1', email: 'a', name: null } } },
+      { locals: { admin: { id: '1', email: 'a', name: null } }, diagnostics },
       async () => {
         throw new SmolVmError(SMOLVM_ERROR_CODES.BAD_RESPONSE, 'Bad', 502);
       }
@@ -79,5 +81,13 @@ describe('smolvm-api facade', () => {
       message: 'Bad',
       status: 502
     });
+    expect(diagnostics.snapshot()).toMatchObject([
+      {
+        level: 'error',
+        code: SMOLVM_ERROR_CODES.BAD_RESPONSE,
+        message: 'Bad',
+        status: 502
+      }
+    ]);
   });
 });
