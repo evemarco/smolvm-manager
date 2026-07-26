@@ -11,6 +11,7 @@ Group=root
 WorkingDirectory=/root/.smolvm
 
 # The wrapper script sets LD_LIBRARY_PATH and SMOLVM_AGENT_ROOTFS
+ExecStartPre=/usr/bin/bash /var/lib/smolvm-manager/scripts/prepare-smolvm-runtime.sh /root/.smolvm/agent-rootfs /var/lib/smolvm/.local/share/smolvm/agent-rootfs
 ExecStart=/root/.smolvm/smolvm serve start
 
 # If smolvm serve start accepts a --listen flag, you can bind to a specific address:

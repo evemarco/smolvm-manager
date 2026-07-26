@@ -38,7 +38,7 @@ Examples:
 
 Environment variables:
   SMOLVM_VERSION, BUILD_DIR, INSTALL_DIR, BIN_DIR, MODIFY_PATH
-  LIBKRUN_MODE, LIBKRUN_GPU, REPO_URL
+  LIBKRUN_MODE, LIBKRUN_GPU, REPO_URL, SMOLVM_RESOLV_CONF
 
 Local patches: every scripts/*.patch file is applied to the cloned SmolVM
 source after checkout; patches that no longer apply cleanly are skipped.
@@ -248,6 +248,7 @@ build_distribution() {
         cd "$BUILD_DIR"
         ./scripts/build-dist.sh
     )
+    bash "$SCRIPT_DIR/prepare-smolvm-runtime.sh" "$(distribution_dir)/agent-rootfs"
 }
 
 build_agent_rootfs() {
