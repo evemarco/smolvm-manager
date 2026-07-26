@@ -79,25 +79,93 @@ test('streaming logs clamps tail and emits SSE without caching full history', as
 });
 
 test('streaming logs rejects unauthenticated requests before opening SmolVM stream', async () => {
-  let opened = false;
+  let openLogStreamCalls = 0;
   const client = {
     openLogStream: async () => {
-      opened = true;
-      throw new Error('should not open');
+      openLogStreamCalls += 1;
+      throw new Error('should not be called');
     }
-  } as unknown as ReturnType<typeof createSmolVmClient>;
+  };
 
   const response = await createLogsSseResponse({
     locals: {},
-    params: { name: 'vm' },
+    params: { name: 'demo' },
     request: new Request('http://local/api'),
     url: new URL('http://local/api'),
-    client
+    client: client as never
   });
 
   expect(response.status).toBe(401);
-  expect(await response.json()).toEqual({ error: 'Unauthorized' });
-  expect(opened).toBe(false);
+  expect(openLogStreamCalls).toBe(0);
+});
+
+test('streaming logs does not open an upstream when the request is already aborted', async () => {
+  let transportCalls = 0;
+  const streamTransport: SmolVmStreamTransport = async () => {
+    transportCalls += 1;
+    return { status: 200, headers: {}, stream: chunks(['late\n']), close: () => {} };
+  };
+  const client = createSmolVmClient({ streamTransport });
+  const aborted = new AbortController();
+  aborted.abort();
+
+  const response = await createLogsSseResponse({
+    locals: locals(),
+    params: { name: 'demo' },
+    request: new Request('http://local/api', { signal: aborted.signal }),
+    url: new URL('http://local/api?follow=1'),
+    client
+  });
+
+  expect(transportCalls).toBe(0);
+  expect(response.status).toBe(499);
+});
+
+test('client disconnect closes upstream without unhandled rejection', async () => {
+  const rejections: unknown[] = [];
+  const onRejection = (reason: unknown) => rejections.push(reason);
+  process.on('unhandledRejection', onRejection);
+
+  let closed = false;
+  let openGate: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    openGate = resolve;
+  });
+  async function* gatedStream() {
+    const encoder = new TextEncoder();
+    yield encoder.encode('first\n');
+    await gate;
+    yield encoder.encode('after-cancel\n');
+  }
+  const streamTransport: SmolVmStreamTransport = async () => ({
+    status: 200,
+    headers: {},
+    stream: gatedStream(),
+    close: () => {
+      closed = true;
+    }
+  });
+  const client = createSmolVmClient({ streamTransport });
+
+  try {
+    const response = await createLogsSseResponse({
+      locals: locals(),
+      params: { name: 'demo' },
+      request: new Request('http://local/api'),
+      url: new URL('http://local/api?follow=1'),
+      client
+    });
+    const reader = response.body!.getReader();
+    await reader.read();
+    await reader.cancel();
+    openGate();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(closed).toBe(true);
+    expect(rejections).toHaveLength(0);
+  } finally {
+    process.off('unhandledRejection', onRejection);
+  }
 });
 
 test('terminal handshake rejects unauthenticated requests without audit or PTY side effects', async () => {

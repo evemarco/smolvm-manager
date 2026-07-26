@@ -45,7 +45,7 @@ function wantsFollow(url: URL): boolean {
   return value === '1' || value === 'true';
 }
 
-function sseEncode(event: string, data: unknown): string {
+export function sseEncode(event: string, data: unknown): string {
   const json = JSON.stringify(data);
   return `event: ${event}\ndata: ${json}\n\n`;
 }
@@ -54,10 +54,21 @@ async function pipeLogStream(
   controller: ReadableStreamDefaultController<Uint8Array>,
   encoder: TextEncoder,
   upstream: SmolVmStreamResponse,
-  follow: boolean
+  follow: boolean,
+  isCancelled: () => boolean
 ) {
   const decoder = new TextDecoder();
   let buffered = '';
+  const emit = (event: string, data: unknown): boolean => {
+    if (isCancelled()) return false;
+    try {
+      controller.enqueue(encoder.encode(sseEncode(event, data)));
+      return true;
+    } catch {
+      // Controller is already closed because the client disconnected.
+      return false;
+    }
+  };
 
   try {
     for await (const chunk of upstream.stream) {
@@ -66,24 +77,30 @@ async function pipeLogStream(
       buffered = parts.pop() ?? '';
 
       for (const line of parts) {
-        if (line.length > 0) {
-          controller.enqueue(encoder.encode(sseEncode('log', { line })));
-        }
+        if (line.length > 0 && !emit('log', { line })) return;
       }
     }
 
     buffered += decoder.decode();
     if (buffered.length > 0) {
-      controller.enqueue(encoder.encode(sseEncode('log', { line: buffered })));
+      emit('log', { line: buffered });
     }
 
-    if (!follow) {
-      controller.enqueue(encoder.encode(sseEncode('end', { reason: 'tail-complete' })));
-      controller.close();
+    if (!follow && emit('end', { reason: 'tail-complete' })) {
+      try {
+        controller.close();
+      } catch {
+        // Controller is already closed because the client disconnected.
+      }
     }
   } catch {
-    controller.enqueue(encoder.encode(sseEncode('error', { message: 'Log stream disconnected.' })));
-    controller.close();
+    if (emit('error', { message: 'Log stream disconnected.' })) {
+      try {
+        controller.close();
+      } catch {
+        // Controller is already closed because the client disconnected.
+      }
+    }
   } finally {
     upstream.close();
   }
@@ -99,9 +116,18 @@ export async function createLogsSseResponse(context: StreamingContext): Promise<
 
   const tail = parseBoundedTail(context.url.searchParams.get('tail'));
   const follow = wantsFollow(context.url);
-  const abort = new AbortController();
 
+  if (context.request.signal.aborted) {
+    return new Response(JSON.stringify({ error: 'Client closed request' }), {
+      status: 499,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const abort = new AbortController();
   context.request.signal.addEventListener('abort', () => abort.abort(), { once: true });
+
+  let cancelled = false;
 
   let upstream: SmolVmStreamResponse;
   try {
@@ -122,9 +148,10 @@ export async function createLogsSseResponse(context: StreamingContext): Promise<
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       controller.enqueue(encoder.encode(sseEncode('ready', { tail, follow })));
-      void pipeLogStream(controller, encoder, upstream, follow);
+      void pipeLogStream(controller, encoder, upstream, follow, () => cancelled);
     },
     cancel() {
+      cancelled = true;
       abort.abort();
       upstream.close();
     }
