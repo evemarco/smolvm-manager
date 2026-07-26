@@ -82,9 +82,9 @@ test.describe('navigation and accessibility', () => {
     const tablist = page.getByRole('tablist');
     await expect(tablist).toBeVisible();
 
-    // All tabs should have role="tab"
+    // All tabs should have role="tab" (Overview, Config, Logs, Guest logs, Terminal, Metrics)
     const tabs = page.getByRole('tab');
-    await expect(tabs).toHaveCount(5);
+    await expect(tabs).toHaveCount(6);
 
     // Active tab should have aria-selected
     const overviewTab = page.getByRole('tab', { name: 'Overview' });

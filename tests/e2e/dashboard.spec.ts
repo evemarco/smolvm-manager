@@ -21,6 +21,19 @@ async function loginAsAdmin(page: Page) {
 }
 
 test.describe('vm dashboard', () => {
+  // Default to an empty machine list so tests stay hermetic even when a real
+  // SmolVM daemon with machines is reachable on the host. Tests registering
+  // their own machines route afterwards take precedence (last registered wins).
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/smolvm/machines', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ machines: [] })
+      });
+    });
+  });
+
   test('authenticated empty dashboard renders no-machines state and Create VM button', async ({
     page
   }) => {
@@ -192,7 +205,7 @@ test.describe('vm dashboard', () => {
     await expect(page.getByRole('tab', { name: 'Overview' })).toBeVisible();
 
     await expect(page.getByRole('tab', { name: 'Config' })).toBeEnabled();
-    await expect(page.getByRole('tab', { name: 'Logs' })).toBeEnabled();
+    await expect(page.getByRole('tab', { name: 'Logs', exact: true })).toBeEnabled();
     await expect(page.getByRole('tab', { name: 'Terminal' })).toBeEnabled();
     await expect(page.getByRole('tab', { name: 'Metrics' })).toBeEnabled();
 
