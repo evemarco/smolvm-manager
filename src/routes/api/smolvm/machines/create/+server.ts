@@ -1,8 +1,19 @@
+import { auditVmAction, type VmAuditStore } from '$lib/server/audit-vm';
 import { requireSmolVmAdmin } from '$lib/server/smolvm-api';
+import type { SmolVmClient } from '$lib/server/smolvm-client';
 import { validateVmConfig, configToCreateRequest, type VmConfig } from '$lib/server/vm-config';
 import type { RequestHandler } from './$types';
 
-export const POST: RequestHandler = async ({ locals, request }) => {
+export type CreateRouteDeps = {
+  client?: SmolVmClient;
+  auditStore?: VmAuditStore;
+};
+
+export const POST = async (
+  event: Parameters<RequestHandler>[0],
+  deps?: CreateRouteDeps
+): Promise<Response> => {
+  const { locals, request, getClientAddress } = event;
   const body = await request.json();
   const config: VmConfig = body;
 
@@ -15,5 +26,19 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   }
 
   const createReq = configToCreateRequest(config);
-  return requireSmolVmAdmin({ locals }, (client) => client.createMachine(createReq));
+  const admin = locals.admin;
+  return requireSmolVmAdmin({ locals, client: deps?.client }, async (client) => {
+    const result = await client.createMachine(createReq);
+    if (admin) {
+      await auditVmAction({
+        action: 'vm.create',
+        machineName: config.name,
+        actorUserId: admin.id,
+        request,
+        getClientAddress,
+        store: deps?.auditStore
+      });
+    }
+    return result;
+  });
 };

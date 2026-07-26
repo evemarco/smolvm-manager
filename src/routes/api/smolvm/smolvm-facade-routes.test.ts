@@ -251,6 +251,7 @@ describe('SmolVM facade routes', () => {
 
   test('machine lifecycle and machine-operation routes keep auth gates and success shapes', async () => {
     installSmolVmClientMock();
+    installManagerStoreMock();
 
     expect(
       await machinesRoute.GET({ locals: anonLocals() } as Parameters<typeof machinesRoute.GET>[0])
@@ -302,7 +303,8 @@ describe('SmolVM facade routes', () => {
 
     const deleteMachineResponse = await machineRoute.DELETE({
       locals: adminLocals(),
-      params: { name: 'vm-alpha' }
+      params: { name: 'vm-alpha' },
+      request: jsonRequest('http://local/api/smolvm/machines/vm-alpha', undefined, 'DELETE')
     } as Parameters<typeof machineRoute.DELETE>[0]);
     expect(deleteMachineResponse.status).toBe(200);
     expect(await deleteMachineResponse.json()).toEqual({
@@ -312,14 +314,16 @@ describe('SmolVM facade routes', () => {
 
     const startResponse = await machineStartRoute.POST({
       locals: adminLocals(),
-      params: { name: 'vm-alpha' }
+      params: { name: 'vm-alpha' },
+      request: jsonRequest('http://local/api/smolvm/machines/vm-alpha/start', undefined)
     } as Parameters<typeof machineStartRoute.POST>[0]);
     expect(startResponse.status).toBe(200);
     expect(await startResponse.json()).toEqual({ name: 'vm-alpha', action: 'started' });
 
     const stopResponse = await machineStopRoute.POST({
       locals: adminLocals(),
-      params: { name: 'vm-alpha' }
+      params: { name: 'vm-alpha' },
+      request: jsonRequest('http://local/api/smolvm/machines/vm-alpha/stop', undefined)
     } as Parameters<typeof machineStopRoute.POST>[0]);
     expect(stopResponse.status).toBe(200);
     expect(await stopResponse.json()).toEqual({ name: 'vm-alpha', action: 'stopped' });
