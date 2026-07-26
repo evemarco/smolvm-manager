@@ -117,6 +117,7 @@ test('smolvm-client normalizes upstream non-2xx responses', async () => {
 
   await expect(client.getMachine('missing')).rejects.toMatchObject({
     code: SMOLVM_ERROR_CODES.REQUEST_FAILED,
+    message: 'missing',
     status: 404,
     details: { error: 'missing' }
   });

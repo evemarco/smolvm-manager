@@ -436,9 +436,17 @@ async function callSmolVm<T>(
 
   if (response.status < 200 || response.status >= 300) {
     const details = response.body ? parseJsonOrText(response.body) : undefined;
+    const upstreamMessage =
+      details &&
+      typeof details === 'object' &&
+      !Array.isArray(details) &&
+      'error' in details &&
+      typeof details.error === 'string'
+        ? details.error.trim()
+        : '';
     throw new SmolVmError(
       SMOLVM_ERROR_CODES.REQUEST_FAILED,
-      'SmolVM request failed.',
+      upstreamMessage || 'SmolVM request failed.',
       response.status || 502,
       details
     );
