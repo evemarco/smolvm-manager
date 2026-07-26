@@ -47,6 +47,9 @@ function createMockSmolVmClient(
     openLogStream: async () => {
       throw new Error('not implemented');
     },
+    execStream: async () => {
+      throw new Error('not implemented');
+    },
     execMachine: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
     downloadMachineFile: async () => ({
       path: '/tmp/file',

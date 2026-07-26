@@ -172,6 +172,11 @@ export type SmolVmClient = {
   stopMachine(name: string): Promise<SmolVmActionResult>;
   deleteMachine(name: string): Promise<SmolVmActionResult>;
   openLogStream(name: string, options: SmolVmLogStreamOptions): Promise<SmolVmStreamResponse>;
+  execStream(
+    name: string,
+    body: SmolVmExecRequest,
+    signal?: AbortSignal
+  ): Promise<SmolVmStreamResponse>;
   execMachine(name: string, body: SmolVmExecRequest): Promise<SmolVmExecResponse>;
   downloadMachineFile(name: string, path: string): Promise<SmolVmFileDownload>;
   listMachineImages(name: string): Promise<SmolVmImageList>;
@@ -560,6 +565,35 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
         throw new SmolVmError(
           SMOLVM_ERROR_CODES.REQUEST_FAILED,
           'SmolVM log stream request failed.',
+          response.status || 502
+        );
+      }
+
+      return response;
+    },
+
+    async execStream(name, body, signal) {
+      let response: SmolVmStreamResponse;
+      try {
+        response = await streamTransport(socketPath, {
+          method: 'POST',
+          path: `/api/v1/machines/${safeMachinePath(name)}/exec/stream`,
+          body,
+          signal
+        });
+      } catch {
+        throw new SmolVmError(
+          SMOLVM_ERROR_CODES.UNREACHABLE,
+          'SmolVM is unreachable on its local Unix socket.',
+          503
+        );
+      }
+
+      if (response.status < 200 || response.status >= 300) {
+        response.close();
+        throw new SmolVmError(
+          SMOLVM_ERROR_CODES.REQUEST_FAILED,
+          'SmolVM exec stream request failed.',
           response.status || 502
         );
       }
