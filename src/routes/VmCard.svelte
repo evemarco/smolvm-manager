@@ -8,7 +8,9 @@
     MoreVertical,
     Monitor,
     Pencil,
-    Copy
+    Copy,
+    FileText,
+    SquareTerminal
   } from '@lucide/svelte';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import type { SmolVmMachine } from '$lib/types';
@@ -22,6 +24,8 @@
     onDelete,
     onEdit,
     onCopy,
+    onLogs,
+    onTerminal,
     actionLoading = {}
   }: {
     machine: SmolVmMachine;
@@ -32,6 +36,8 @@
     onDelete: (m: SmolVmMachine) => void;
     onEdit?: (m: SmolVmMachine) => void;
     onCopy?: (m: SmolVmMachine) => void;
+    onLogs?: (m: SmolVmMachine) => void;
+    onTerminal?: (m: SmolVmMachine) => void;
     actionLoading?: Record<string, boolean>;
   } = $props();
 
@@ -167,5 +173,27 @@
       <Monitor size={12} />
       VM
     </span>
+  </div>
+
+  <!-- Quick actions -->
+  <div class="mt-4 flex items-center gap-2 border-t border-white/5 pt-3">
+    <button
+      type="button"
+      class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-slate-400 transition hover:bg-white/10 hover:text-cyan-300"
+      onclick={() => onLogs?.(machine)}
+      aria-label="Logs for {machine.name}"
+    >
+      <FileText size={14} />
+      Logs
+    </button>
+    <button
+      type="button"
+      class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-slate-400 transition hover:bg-white/10 hover:text-cyan-300"
+      onclick={() => onTerminal?.(machine)}
+      aria-label="Terminal for {machine.name}"
+    >
+      <SquareTerminal size={14} />
+      Terminal
+    </button>
   </div>
 </div>

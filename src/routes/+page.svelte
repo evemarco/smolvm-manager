@@ -27,13 +27,16 @@
     VmConfig,
     VmFormMode,
     CapacityData,
-    ViewMode
+    ViewMode,
+    TabId
   } from '$lib/types';
   import ViewToggle from '$lib/components/ViewToggle.svelte';
   import ConfirmationModal from '$lib/components/ConfirmationModal.svelte';
   import ToastContainer from '$lib/components/ToastContainer.svelte';
   import ImagePicker from '$lib/components/ImagePicker.svelte';
   import BrowseImagesButton from '$lib/components/BrowseImagesButton.svelte';
+  import GlobalLogsButton from '$lib/components/GlobalLogsButton.svelte';
+  import GlobalLogs from './GlobalLogs.svelte';
   import VmConfigForm from '$lib/components/VmConfigForm.svelte';
   import VmCard from './VmCard.svelte';
   import VmTable from './VmTable.svelte';
@@ -58,6 +61,7 @@
   let savedConfigsSync: SavedVmConfigsSync | null = null;
   let savedConfigs: SavedVmConfig[] = $state([]);
   let selectedMachine: SmolVmMachine | null = $state(null);
+  let detailInitialTab: TabId = $state('overview');
 
   // Confirmation modal state
   let confirmOpen = $state(false);
@@ -70,6 +74,7 @@
   // Action loading states
   let actionLoading: Record<string, boolean> = $state({});
   let pickerOpen = $state(false);
+  let globalLogsOpen = $state(false);
 
   // Capacity summary
   let capacity: CapacityData | null = $state(null);
@@ -82,6 +87,10 @@
 
   let csrfToken = $derived(data.csrfToken ?? '');
 
+  function toggleGlobalLogs() {
+    globalLogsOpen = !globalLogsOpen;
+  }
+
   const statusOptions = [
     { value: 'all', label: 'All Statuses' },
     { value: 'running', label: 'Running' },
@@ -89,7 +98,7 @@
     { value: 'error', label: 'Error' }
   ];
 
-  let filteredMachines = $derived(() => {
+  let filteredMachines = $derived.by(() => {
     let result = machines;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -345,6 +354,21 @@
     vmFormOpen = true;
   }
 
+  function openDetailOverview(machine: SmolVmMachine) {
+    detailInitialTab = 'overview';
+    selectedMachine = machine;
+  }
+
+  function openLogsTab(machine: SmolVmMachine) {
+    detailInitialTab = 'logs';
+    selectedMachine = machine;
+  }
+
+  function openTerminalTab(machine: SmolVmMachine) {
+    detailInitialTab = 'terminal';
+    selectedMachine = machine;
+  }
+
   async function handleVmFormSave(config: VmConfig) {
     try {
       if (vmFormMode === 'create' || vmFormMode === 'copy') {
@@ -449,6 +473,17 @@
   <ImagePicker
     onSelect={(selection: ImagePickerSelection) => {
       toasts.push(`Selected image: ${selection.fullName}`, 'success');
+      vmFormMode = 'create';
+      vmFormInitialConfig = {
+        name: '',
+        cpus: 4,
+        memory: 8192,
+        net: true,
+        image: `${selection.namespace}/${selection.repository}`,
+        tag: selection.tag
+      };
+      vmFormExistingName = undefined;
+      vmFormOpen = true;
       pickerOpen = false;
     }}
     onClose={() => (pickerOpen = false)}
@@ -504,6 +539,7 @@
         Refresh
       </button>
       <BrowseImagesButton onClick={() => (pickerOpen = true)} />
+      <GlobalLogsButton onClick={toggleGlobalLogs} />
       <button
         class="flex items-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed"
         onclick={openCreateVm}
@@ -612,6 +648,10 @@
     <ViewToggle value={viewMode} onChange={setViewMode} />
   </div>
 
+  {#if globalLogsOpen}
+    <GlobalLogs />
+  {/if}
+
   <!-- Content -->
   {#if loading && machines.length === 0}
     <div class="flex flex-col items-center justify-center gap-3 py-20">
@@ -631,7 +671,7 @@
         Retry
       </button>
     </div>
-  {:else if filteredMachines().length === 0 && machines.length === 0}
+  {:else if filteredMachines.length === 0 && machines.length === 0}
     <!-- Empty state -->
     <div
       class="flex flex-col items-center justify-center gap-4 rounded-2xl border border-white/10 bg-white/5 py-20"
@@ -656,7 +696,7 @@
         </button>
       </div>
     </div>
-  {:else if filteredMachines().length === 0}
+  {:else if filteredMachines.length === 0}
     <div class="flex flex-col items-center justify-center gap-3 py-16">
       <Search size={28} class="text-slate-500" />
       <p class="text-sm text-slate-400">No machines match your search.</p>
@@ -664,6 +704,7 @@
   {:else if selectedMachine}
     <VmDetail
       machine={selectedMachine}
+      initialTab={detailInitialTab}
       onBack={() => (selectedMachine = null)}
       onStart={(m) => lifecycleAction(m.name, 'start')}
       onStop={(m) => lifecycleAction(m.name, 'stop')}
@@ -675,30 +716,34 @@
     />
   {:else if viewMode === 'cards'}
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {#each filteredMachines() as machine (machine.name)}
+      {#each filteredMachines as machine (machine.name)}
         <VmCard
           {machine}
-          onSelect={(m) => (selectedMachine = m)}
+          onSelect={openDetailOverview}
           onStart={(m) => lifecycleAction(m.name, 'start')}
           onStop={(m) => lifecycleAction(m.name, 'stop')}
           onRestart={(m) => confirmRestart(m)}
           onDelete={(m) => confirmDelete(m)}
           onEdit={(m) => openEditVm(m)}
           onCopy={(m) => openCopyVm(m)}
+          onLogs={openLogsTab}
+          onTerminal={openTerminalTab}
           {actionLoading}
         />
       {/each}
     </div>
   {:else}
     <VmTable
-      machines={filteredMachines()}
-      onSelect={(m) => (selectedMachine = m)}
+      machines={filteredMachines}
+      onSelect={openDetailOverview}
       onStart={(m) => lifecycleAction(m.name, 'start')}
       onStop={(m) => lifecycleAction(m.name, 'stop')}
       onRestart={(m) => confirmRestart(m)}
       onDelete={(m) => confirmDelete(m)}
       onEdit={(m) => openEditVm(m)}
       onCopy={(m) => openCopyVm(m)}
+      onLogs={openLogsTab}
+      onTerminal={openTerminalTab}
       {actionLoading}
     />
   {/if}
