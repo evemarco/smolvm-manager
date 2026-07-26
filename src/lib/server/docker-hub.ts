@@ -129,8 +129,7 @@ function getConfiguredToken(): string | undefined {
 export const DOCKER_HUB_TOKEN_SETTING_KEY = 'docker_hub_token';
 
 export type DockerHubCredentials =
-  | { kind: 'jwt'; username: string; pat: string }
-  | { kind: 'bearer'; token: string };
+  { kind: 'jwt'; username: string; pat: string } | { kind: 'bearer'; token: string };
 
 /**
  * Credential resolution order: the settings-page values stored in Pylon win,

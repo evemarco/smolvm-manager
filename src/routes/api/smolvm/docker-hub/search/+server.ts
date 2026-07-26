@@ -20,7 +20,8 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 
   const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
   const pageSize = Math.max(1, parseInt(url.searchParams.get('page_size') ?? '25', 10) || 25);
-  const officialOnly = url.searchParams.get('official') === '1' || url.searchParams.get('official') === 'true';
+  const officialOnly =
+    url.searchParams.get('official') === '1' || url.searchParams.get('official') === 'true';
 
   try {
     const credentials = await resolveDockerHubCredentials();

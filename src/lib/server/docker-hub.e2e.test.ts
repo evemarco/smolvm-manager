@@ -41,9 +41,7 @@ describeE2E('docker-hub live API contract', () => {
       const client = createDockerHubClient();
       const page = await client.searchRepositories('alpine', 1, 10);
 
-      const official = page.results.find(
-        (r) => r.namespace === 'library' && r.name === 'alpine'
-      );
+      const official = page.results.find((r) => r.namespace === 'library' && r.name === 'alpine');
       expect(official?.is_official).toBe(true);
     },
     NETWORK_TIMEOUT_MS

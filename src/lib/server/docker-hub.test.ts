@@ -234,7 +234,10 @@ describe('docker-hub client', () => {
       const { resolveDockerHubToken, DOCKER_HUB_TOKEN_SETTING_KEY } = await import('./docker-hub');
       const store = getManagerStoreClient();
 
-      await store.setSetting(DOCKER_HUB_TOKEN_SETTING_KEY, JSON.stringify({ token: 'stored-token' }));
+      await store.setSetting(
+        DOCKER_HUB_TOKEN_SETTING_KEY,
+        JSON.stringify({ token: 'stored-token' })
+      );
       expect(await resolveDockerHubToken()).toBe('stored-token');
 
       await store.setSetting(DOCKER_HUB_TOKEN_SETTING_KEY, JSON.stringify({ token: '' }));
@@ -249,9 +252,8 @@ describe('docker-hub client', () => {
     process.env.PYLON_STORE_MODE = 'mock';
     try {
       const { getManagerStoreClient } = await import('./manager-store-client');
-      const { resolveDockerHubCredentials, DOCKER_HUB_TOKEN_SETTING_KEY } = await import(
-        './docker-hub'
-      );
+      const { resolveDockerHubCredentials, DOCKER_HUB_TOKEN_SETTING_KEY } =
+        await import('./docker-hub');
       const store = getManagerStoreClient();
 
       await store.setSetting(
@@ -280,8 +282,18 @@ describe('docker-hub client', () => {
 
     const { getDockerHubJwt, invalidateDockerHubJwt } = await import('./docker-hub');
     invalidateDockerHubJwt();
-    const first = await getDockerHubJwt('https://hub.example', 'u', 'p', mockFetch as unknown as typeof fetch);
-    const second = await getDockerHubJwt('https://hub.example', 'u', 'p', mockFetch as unknown as typeof fetch);
+    const first = await getDockerHubJwt(
+      'https://hub.example',
+      'u',
+      'p',
+      mockFetch as unknown as typeof fetch
+    );
+    const second = await getDockerHubJwt(
+      'https://hub.example',
+      'u',
+      'p',
+      mockFetch as unknown as typeof fetch
+    );
 
     expect(first).toBe('jwt-abc');
     expect(second).toBe('jwt-abc');

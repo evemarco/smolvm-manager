@@ -47,7 +47,9 @@ export const actions: Actions = {
       return fail(400, { error: 'Docker Hub username is required.' });
     }
     if (token.length < 10) {
-      return fail(400, { error: 'Token looks too short — paste the full Docker Hub access token.' });
+      return fail(400, {
+        error: 'Token looks too short — paste the full Docker Hub access token.'
+      });
     }
 
     await getManagerStoreClient().setSetting(

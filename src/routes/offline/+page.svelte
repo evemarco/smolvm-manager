@@ -6,8 +6,8 @@
   <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-8 shadow-xl">
     <h1 class="text-2xl font-semibold text-white">You are offline</h1>
     <p class="mt-2 text-sm text-slate-400">
-      The manager cannot reach the server right now. Live VM data and actions require a
-      connection to the host running SmolVM.
+      The manager cannot reach the server right now. Live VM data and actions require a connection
+      to the host running SmolVM.
     </p>
     <button
       type="button"

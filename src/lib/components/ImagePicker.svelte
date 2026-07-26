@@ -397,7 +397,8 @@
                 <ChevronLeft size={14} />
               </button>
               <span>
-                Page {searchPage}{#if searchTotalPages !== undefined} / {searchTotalPages}{/if}
+                Page {searchPage}{#if searchTotalPages !== undefined}
+                  / {searchTotalPages}{/if}
               </span>
               <button
                 class="rounded-lg border border-white/10 bg-slate-800 px-2 py-1 text-slate-300 transition hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -530,7 +531,8 @@
                 <ChevronLeft size={14} />
               </button>
               <span>
-                Page {tagPage}{#if tagTotalPages !== undefined} / {tagTotalPages}{/if}
+                Page {tagPage}{#if tagTotalPages !== undefined}
+                  / {tagTotalPages}{/if}
               </span>
               <button
                 class="rounded-lg border border-white/10 bg-slate-800 px-2 py-1 text-slate-300 transition hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed"
