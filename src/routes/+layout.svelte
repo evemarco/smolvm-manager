@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Menu, X, Settings, LayoutDashboard } from '@lucide/svelte';
+  import { Menu, X, Settings, LayoutDashboard, ScrollText } from '@lucide/svelte';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
   import '../app.css';
@@ -61,6 +61,13 @@
           <Settings size={14} />
           Settings
         </a>
+        <a
+          href="/audit"
+          class="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white"
+        >
+          <ScrollText size={14} />
+          Audit
+        </a>
         <!-- eslint-enable svelte/no-navigation-without-resolve -->
         <form method="POST" action="/logout" class="inline">
           <input type="hidden" name="csrf" value={data.csrfToken ?? ''} />
@@ -111,6 +118,14 @@
           >
             <Settings size={16} />
             Settings
+          </a>
+          <a
+            href="/audit"
+            class="inline-flex items-center gap-2 rounded-md bg-slate-800 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white"
+            onclick={closeMobileMenu}
+          >
+            <ScrollText size={16} />
+            Audit
           </a>
           <!-- eslint-enable svelte/no-navigation-without-resolve -->
           <form method="POST" action="/logout" class="inline" onsubmit={closeMobileMenu}>
