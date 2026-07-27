@@ -60,7 +60,7 @@ async function setup(options: { dirty?: boolean; changed?: string; afterHash?: s
     PATH: `${bin}:${process.env.PATH}`,
     PROD_DIR: prodDir,
     PROD_USER: 'tester',
-    HEALTH_URL: 'http://127.0.0.1:1/api/health',
+    HEALTH_URL: 'http://127.0.0.1:1/api/public/health',
     BUN: join(bin, 'bun'),
     UPGRADE_LOG: join(root, 'log'),
     GIT_HASH_FILE: hashFile,

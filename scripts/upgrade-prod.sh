@@ -29,7 +29,7 @@ if [[ -z "${HEALTH_URL:-}" ]]; then
     if [[ -r /etc/smolvm-manager/env ]]; then
         port="$(awk -F= '/^MANAGER_PORT=/ {print $2}' /etc/smolvm-manager/env | tail -1)"
     fi
-    HEALTH_URL="http://127.0.0.1:${port:-4173}/api/health"
+    HEALTH_URL="http://127.0.0.1:${port:-4173}/api/public/health"
 fi
 
 [[ -d "$PROD_DIR/.git" ]] || fail "$PROD_DIR is not a git checkout"
