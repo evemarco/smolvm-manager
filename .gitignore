@@ -44,3 +44,6 @@ Thumbs.db
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# bun cache created when HOME is read-only (production checkout)
+.bun/
