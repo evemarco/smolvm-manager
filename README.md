@@ -15,11 +15,21 @@ A web-based manager for [SmolVM](https://github.com/smol-machines/smolvm) virtua
 
 - [Bun](https://bun.sh/) 1.3.14 or later
 - [Pylon](https://github.com/pylonsync/pylon) `0.3.333`, available as `pylon` or through `PYLON_COMMAND`
-- [SmolVM](https://github.com/smol-machines/smolvm) installed and serving its API on `unix:///tmp/smolvm.sock`
+- [SmolVM](https://github.com/smol-machines/smolvm) installed and serving its API on `unix:///tmp/smolvm.sock` — verified against **1.6.13** and **1.7.0** (see below)
 - KVM access through `/dev/kvm` on Linux hosts that run SmolVM
 - Optional: `libxmlsec1-openssl` runtime library if your Pylon package depends on it
 
 Prebuilt Pylon or SmolVM executables may not run on hosts with an older glibc or a different native-library set. The original project requirements did not list the complete source-build toolchains. See [Building Pylon and SmolVM from Source](docs/SOURCE_BUILDS.md) for the required packages, fallback behavior, and verification commands.
+
+### SmolVM Compatibility
+
+The manager is verified against SmolVM **1.6.13** and **1.7.0**. Three version-sensitive behaviors matter:
+
+- Since 1.6.13, the log-stream `follow` query parameter is strictly deserialized as a boolean: `follow=1` is rejected with a 400. The manager sends `follow=true`; custom clients against the SmolVM API must do the same.
+- SmolVM's in-guest DNS gateway (TSI, `100.96.0.1`) forwards to a public resolver compiled into the binary (`1.1.1.1`), ignoring the host's `/etc/resolv.conf`. On hosts whose external firewall blocks public resolvers, in-guest image pulls time out. The provided `docs/smolvm-serve.service` unit installs a host-level DNAT redirect to the host resolver at every start and removes it at stop (`scripts/ensure-smolvm-dns-redirect.sh`).
+- SmolVM 1.7.0 rejects invalid create/update payloads that earlier versions accepted silently: out-of-range CPU/memory, `cmd`/`entrypoint` without an image, duplicate guest mount targets, and malformed env names, ports, or egress CIDRs. The manager form pre-validates most of these; any remaining case now surfaces as a clear 400 error in the UI instead of being silently ignored.
+
+SmolVM 1.7.0 also makes start failures explicit (an image pull failure fails the start and no longer leaves an orphaned agent VM or a stuck "already starting" lock) and reports boot failures with diagnosable messages, which the manager's Diagnostics page surfaces directly.
 
 ## Quick Start
 
@@ -45,7 +55,7 @@ If the downloaded executables fail with a glibc or shared-library error, build t
 
 ```sh
 ./scripts/build-pylon.sh
-./scripts/build-smolvm.sh --version v1.6.3
+./scripts/build-smolvm.sh --version v1.7.0
 ```
 
 The Pylon script compiles the project-pinned `v0.3.333` release against the host glibc. The SmolVM script validates the version-matched Git LFS `libkrun` stack, creates the complete distribution, and automatically compiles SmolVM's patched `libkrun` and `libkrunfw` submodules over HTTPS only when compatibility checks require it.

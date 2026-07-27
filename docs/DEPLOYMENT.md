@@ -32,7 +32,7 @@ This file documents a complete production deployment layout for [SmolVM Manager]
 1. Clone the repository to `/var/lib/smolvm-manager`.
 2. Install Pylon and SmolVM, or build them locally by following [`SOURCE_BUILDS.md`](SOURCE_BUILDS.md) when the published executables are incompatible with the host.
 3. Install the executables where the sandbox can reach them. The unit sets `ProtectHome=true`, so anything under `/root` or `/home` is invisible to the service — copy `bun` and `pylon` as real files (not symlinks into `/root`) to `/usr/local/bin/`.
-4. Confirm that `pylon --version` works and that SmolVM serves `/tmp/smolvm.sock`. The provided SmolVM unit copies the host resolver into both the installed and cached agent rootfs before every start; this prevents TSI image pulls from using a stale hard-coded public DNS server.
+4. Confirm that `pylon --version` works and that SmolVM serves `/tmp/smolvm.sock`. The provided SmolVM unit copies the host resolver into both the installed and cached agent rootfs before every start; this prevents TSI image pulls from using a stale hard-coded public DNS server. The unit also DNAT-redirects the public resolver compiled into SmolVM (`1.1.1.1:53`) to the host resolver at start and removes the rules at stop (`scripts/ensure-smolvm-dns-redirect.sh`), because guests resolve through the TSI gateway (`100.96.0.1`), which ignores the rootfs resolver — on hosts whose external firewall blocks public DNS, guest image pulls would otherwise time out.
 5. Run `bun install` and `bun run build`.
 6. Create the `smolvm-manager` user and group:
 
@@ -102,10 +102,14 @@ When upstream executables cannot run on the deployment distribution, build them 
 
 ```sh
 ./scripts/build-pylon.sh
-./scripts/build-smolvm.sh --version v1.6.3
+./scripts/build-smolvm.sh --version v1.7.0
 ```
 
 Do not install raw `libkrun.so` files directly from the SmolVM source tree. The project script runs the complete SmolVM distribution packaging step, which makes GPU libraries optional for non-GPU VMs and validates the resulting loader dependencies.
+
+### Upgrading SmolVM
+
+Rebuild (or install) the new SmolVM version, then restart only `smolvm-serve.service`. The manager opens a fresh Unix-socket connection per request and needs neither a rebuild nor a restart; browser SSE/WebSocket streams reconnect on their own. The manager is verified against SmolVM 1.6.13 and 1.7.0 — see the "SmolVM Compatibility" section of the [README](../README.md) for the version-sensitive behaviors (strict boolean `follow`, compiled-in `1.1.1.1` guest DNS, and 1.7.0's stricter create/update validation).
 
 ## Logs
 
