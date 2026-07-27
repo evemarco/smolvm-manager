@@ -10,6 +10,7 @@
     Copy,
     Pencil
   } from '@lucide/svelte';
+  import { untrack } from 'svelte';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
   import VmLogs from './VmLogs.svelte';
   import VmTerminal from './VmTerminal.svelte';
@@ -44,7 +45,8 @@
   const machineStatus = $derived(machine.status ?? machine.state ?? 'unknown');
   const isRunning = $derived(machineStatus === 'running');
 
-  let activeTab: TabId = $state(initialTab);
+  // initialTab only seeds the starting tab; afterwards the tab is user-controlled
+  let activeTab: TabId = $state(untrack(() => initialTab));
 
   const tabs: { id: TabId; label: string; disabled?: boolean }[] = [
     { id: 'overview', label: 'Overview' },
