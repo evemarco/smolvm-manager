@@ -428,6 +428,34 @@
     }
   }
 
+  let machineStream: EventSource | null = null;
+
+  function connectMachineStream() {
+    machineStream = new EventSource('/api/smolvm/machines/stream');
+
+    machineStream.addEventListener('snapshot', (event) => {
+      const payload = JSON.parse((event as MessageEvent).data) as {
+        machines?: SmolVmMachine[];
+        capacity?: CapacityData;
+      };
+      if (payload.machines) {
+        machines = payload.machines;
+        if (selectedMachine) {
+          const updated = machines.find((m) => m.name === selectedMachine?.name);
+          if (updated) selectedMachine = updated;
+        }
+      }
+      if (payload.capacity) capacity = payload.capacity;
+      loading = false;
+      error = null;
+    });
+
+    machineStream.addEventListener('stream-error', (event) => {
+      const payload = JSON.parse((event as MessageEvent).data) as { message?: string };
+      error = payload.message ?? 'Machine stream error.';
+    });
+  }
+
   onMount(() => {
     viewModePreference = createUiPreferenceSync(data.admin?.id, 'dashboard.viewMode', {
       defaultValue: viewMode,
@@ -443,12 +471,15 @@
 
     fetchMachines();
     fetchCapacity();
+    connectMachineStream();
 
     return () => {
       viewModePreference?.stop();
       viewModePreference = null;
       savedConfigsSync?.stop();
       savedConfigsSync = null;
+      machineStream?.close();
+      machineStream = null;
     };
   });
 </script>
