@@ -551,7 +551,8 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
 
     async openLogStream(name, options) {
       const params = new URLSearchParams({ tail: String(options.tail) });
-      if (options.follow) params.set('follow', '1');
+      // SmolVM 1.6.13+ strictly deserializes `follow` as a boolean.
+      if (options.follow) params.set('follow', 'true');
 
       let response: SmolVmStreamResponse;
       try {
