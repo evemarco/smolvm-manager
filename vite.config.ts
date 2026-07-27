@@ -1,8 +1,19 @@
 import tailwindcss from '@tailwindcss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { SvelteKitPWA } from '@vite-pwa/sveltekit';
+import { execSync } from 'node:child_process';
 import { defineConfig, type Plugin, type PreviewServer, type ViteDevServer } from 'vite';
 import { installSmolVmTerminalWebSocketProxy } from './src/lib/server/smolvm-terminal-ws';
+
+function buildCommit(): string {
+  try {
+    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim();
+  } catch {
+    return 'unknown';
+  }
+}
 
 function smolVmTerminalWebSockets(): Plugin {
   return {
@@ -23,6 +34,10 @@ function smolVmTerminalWebSockets(): Plugin {
 const swDenylist = [/^\/api\//, /^\/login/, /^\/setup/, /^\/logout/, /\/terminal\/ws$/];
 
 export default defineConfig({
+  define: {
+    __APP_COMMIT__: JSON.stringify(buildCommit()),
+    __APP_BUILD_TIME__: JSON.stringify(new Date().toISOString())
+  },
   build: {
     rollupOptions: {
       checks: { pluginTimings: false }

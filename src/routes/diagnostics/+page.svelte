@@ -60,6 +60,32 @@
     </div>
   </header>
 
+  <section
+    aria-label="Runtime versions"
+    class="grid grid-cols-1 gap-3 rounded-2xl border border-white/10 bg-slate-900/60 p-4 sm:grid-cols-3 sm:p-5"
+  >
+    <div>
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Manager build</p>
+      <p class="mt-1 font-mono text-sm text-white">{data.health.commit}</p>
+    </div>
+    <div>
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Built at</p>
+      <p class="mt-1 text-sm text-slate-200">
+        <time datetime={data.health.buildTime}>
+          {new Date(data.health.buildTime).toLocaleString()}
+        </time>
+      </p>
+    </div>
+    <div>
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500">SmolVM backend</p>
+      <p class="mt-1 text-sm {data.health.smolvm.reachable ? 'text-emerald-300' : 'text-red-300'}">
+        {data.health.smolvm.reachable
+          ? (data.health.smolvm.version ?? 'reachable')
+          : 'unreachable'}
+      </p>
+    </div>
+  </section>
+
   {#if data.diagnostics.length === 0}
     <section
       class="flex flex-col items-center justify-center gap-3 rounded-2xl border border-white/10 bg-slate-900/60 px-6 py-16 text-center"
