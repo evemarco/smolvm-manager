@@ -13,12 +13,12 @@ WorkingDirectory=/root/.smolvm
 # The wrapper script sets LD_LIBRARY_PATH and SMOLVM_AGENT_ROOTFS
 ExecStartPre=/usr/bin/bash /var/lib/smolvm-manager/scripts/prepare-smolvm-runtime.sh /root/.smolvm/agent-rootfs /var/lib/smolvm/.local/share/smolvm/agent-rootfs
 
-# Guests resolve DNS through the TSI gateway (100.96.0.1), which forwards to a
-# public resolver compiled into SmolVM (1.1.1.1). On hosts whose external
-# firewall blocks public resolvers, redirect that traffic to the host's real
-# resolver. Installed at start, removed at stop.
-ExecStartPre=/usr/bin/bash /var/lib/smolvm-manager/scripts/ensure-smolvm-dns-redirect.sh add
-ExecStopPost=-/usr/bin/bash /var/lib/smolvm-manager/scripts/ensure-smolvm-dns-redirect.sh remove
+# Guest DNS is set per machine at create time (the manager sends
+# dns=185.12.64.1, Hetzner's resolver, by default; SMOLVM_GUEST_DNS
+# overrides). Requires the scripts/smolvm-api-dns.patch build, which adds
+# `dns` to the create API. No host-level DNAT redirect is needed anymore.
+# Machines created before this change still resolve through the compiled-in
+# 1.1.1.1 — recreate them to migrate.
 
 ExecStart=/root/.smolvm/smolvm serve start
 

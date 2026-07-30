@@ -145,20 +145,20 @@ Select a mode explicitly when diagnosing a host:
 
 ```sh
 # Prefer the version-matched Git LFS libraries and compile only if needed
-./scripts/build-smolvm.sh --version v1.7.0 --libkrun-mode auto
+./scripts/build-smolvm.sh --version v1.7.1 --libkrun-mode auto
 
 # Refuse to compile libkrun and libkrunfw
-./scripts/build-smolvm.sh --version v1.7.0 --libkrun-mode bundled
+./scripts/build-smolvm.sh --version v1.7.1 --libkrun-mode bundled
 
 # Force the patched submodules to compile locally
-./scripts/build-smolvm.sh --version v1.7.0 --libkrun-mode source
+./scripts/build-smolvm.sh --version v1.7.1 --libkrun-mode source
 ```
 
 Source builds disable libkrun GPU support by default to avoid an unnecessary virglrenderer development dependency. Enable it only when GPU virtualization is required:
 
 ```sh
 ./scripts/build-smolvm.sh \
-  --version v1.7.0 \
+  --version v1.7.1 \
   --libkrun-mode source \
   --libkrun-gpu 1
 ```
@@ -187,7 +187,7 @@ The complete kernel build is slow. Keep the default `auto` mode unless binary va
 
 ### Local Patches
 
-After cloning, the script applies every `*.patch` file found in `scripts/` to the SmolVM source tree. A patch that no longer applies cleanly — because upstream merged the fix or the surrounding code changed — is skipped with a log message and never fails the build. `scripts/smolvm-fnv64-fix.patch` repaired an upstream compile error in the `smolvm-cuda` guest build; the fix is merged upstream as of SmolVM 1.7.0, so the patch is now skipped automatically and can be deleted.
+After cloning, the script applies every `*.patch` file found in `scripts/` to the SmolVM source tree. A patch that no longer applies cleanly — because upstream merged the fix or the surrounding code changed — is skipped with a log message and never fails the build. `scripts/smolvm-fnv64-fix.patch` repaired an upstream compile error in the `smolvm-cuda` guest build; the fix is merged upstream as of SmolVM 1.7.0, so the patch is now skipped automatically and can be deleted. `scripts/smolvm-api-dns.patch` adds the CLI's per-machine `--dns` option to the HTTP create API (`CreateMachineRequest.dns`, wired through `ResourceSpec` into `VmRecord.dns`); the manager relies on it to give guests Hetzner's resolver at create time. The build fails loudly through the normal compile step if this patch ever stops applying — do not let it be skipped silently; check the build log for "Applying local patch: smolvm-api-dns.patch".
 
 ### Installation Paths and Verification
 
