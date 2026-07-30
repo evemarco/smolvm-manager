@@ -32,6 +32,11 @@ import * as tomlValidateRoute from './toml-validate/+server';
 import * as tomlGenerateRoute from './toml-generate/+server';
 import { GET as getManagerUpdate } from './update/+server';
 import { PATCH as patchMachineUpdate } from './machines/[name]/update/+server';
+import {
+  SMOLVM_ERROR_CODES,
+  SmolVmError,
+  type SmolVmClient
+} from '$lib/server/smolvm-client';
 
 const admin = { id: 'admin-1', email: 'admin@example.com', name: null };
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -194,6 +199,22 @@ function createSmolVmClientMock() {
   };
 }
 
+function createMachineUpdateClient(getMachine: SmolVmClient['getMachine']): SmolVmClient {
+  return {
+    ...createSmolVmClientMock(),
+    socketPath: '/tmp/test.sock',
+    getMachine,
+    execStream: async () => ({
+      status: 200,
+      headers: {},
+      stream: (async function* () {
+        yield new Uint8Array();
+      })(),
+      close: () => undefined
+    })
+  };
+}
+
 function createManagerStoreMock() {
   const auditEvents: Array<{ entry: unknown; auth: unknown }> = [];
   const metricsCalls: Array<{ machineName?: string; limit?: number }> = [];
@@ -218,11 +239,24 @@ function createManagerStoreMock() {
 function installSmolVmClientMock(client: unknown = createSmolVmClientMock()) {
   mock.module('$lib/server/smolvm-client', () => ({
     getSmolVmClient: () => client,
-    normalizeSmolVmError: (error: unknown) => ({
-      code: 'SMOLVM_REQUEST_FAILED',
-      message: error instanceof Error ? error.message : 'SmolVM request failed.',
-      status: 500
-    })
+    normalizeSmolVmError: (error: unknown) => {
+      const typed = typeof error === 'object' && error !== null ? error : undefined;
+      const code = typed && 'code' in typed ? typed.code : undefined;
+      const message = typed && 'message' in typed ? typed.message : undefined;
+      const status = typed && 'status' in typed ? typed.status : undefined;
+      const details = typed && 'details' in typed ? typed.details : undefined;
+      return {
+        code: typeof code === 'string' ? code : 'SMOLVM_REQUEST_FAILED',
+        message:
+          typeof message === 'string'
+            ? message
+            : error instanceof Error
+              ? error.message
+              : 'SmolVM request failed.',
+        status: typeof status === 'number' ? status : 500,
+        ...(details === undefined ? {} : { details })
+      };
+    }
   }));
 }
 
@@ -801,20 +835,35 @@ describe('SmolVM facade routes', () => {
         'SmolVM 0.8.1 does not expose a server update endpoint. Upgrade the manager and SmolVM through the deployment process.'
     });
 
-    const machineUpdateResponse = await patchMachineUpdate({
-      locals: adminLocals(),
-      params: { name: 'vm-alpha' }
-    } as Parameters<typeof patchMachineUpdate>[0]);
-    expect(machineUpdateResponse.status).toBe(409);
-    expect(await machineUpdateResponse.json()).toEqual({
-      available: false,
-      feature: 'machineUpdate',
-      code: 'SMOLVM_RECREATE_REQUIRED',
-      machine: 'vm-alpha',
-      message:
-        'SmolVM 0.8.1 does not expose a general live machine update API. Use the recreate endpoint for configuration changes.',
-      recreateEndpoint: '/api/smolvm/machines/vm-alpha/recreate'
-    });
+    const updateCommands: string[][] = [];
+    const machineUpdateClient = createMachineUpdateClient(async () => ({
+      name: 'vm-alpha',
+      state: 'stopped',
+      ports: [{ host: 8080, guest: 80 }]
+    }));
+    const machineUpdateResponse = await patchMachineUpdate(
+      {
+        locals: adminLocals(),
+        params: { name: 'vm-alpha' },
+        request: jsonRequest('http://local/api/smolvm/machines/vm-alpha/update', {
+          name: 'vm-alpha',
+          ports: [
+            { host: 8080, guest: 80 },
+            { host: 9090, guest: 90 }
+          ]
+        })
+      } as Parameters<typeof patchMachineUpdate>[0],
+      {
+        client: machineUpdateClient,
+        runner: async (command) => {
+          updateCommands.push([...command]);
+        }
+      }
+    );
+    expect(machineUpdateResponse.status).toBe(200);
+    expect(updateCommands).toEqual([
+      ['smolvm', 'machine', 'update', '--name', 'vm-alpha', '--port', '9090:90']
+    ]);
 
     expect(
       await patchMachineUpdate({
@@ -954,20 +1003,206 @@ describe('SmolVM facade routes', () => {
     });
   });
 
+  test('machine update route applies port changes through smolvm machine update', async () => {
+    const commands: string[][] = [];
+    const client = createMachineUpdateClient(async () => ({
+      name: 'vm one',
+      state: 'stopped',
+      ports: [{ host: 8080, guest: 80 }],
+      cpus: 1,
+      memoryMb: 64
+    }));
+
+    const response = await patchMachineUpdate(
+      {
+        locals: adminLocals(),
+        params: { name: 'vm one' },
+        request: jsonRequest('http://local/api/smolvm/machines/vm%20one/update', {
+          name: 'vm one',
+          cpus: 2,
+          memory: 128,
+          ports: [
+            { host: 8080, guest: 80 },
+            { host: 3000, guest: 3000 }
+          ]
+        })
+      } as Parameters<typeof patchMachineUpdate>[0],
+      {
+        client,
+        runner: async (command) => {
+          commands.push([...command]);
+        }
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(commands).toEqual([
+      [
+        'smolvm',
+        'machine',
+        'update',
+        '--name',
+        'vm one',
+        '--cpus',
+        '2',
+        '--mem',
+        '128',
+        '--port',
+        '3000:3000'
+      ]
+    ]);
+  });
+
+  test('machine update route restarts a running machine around the update', async () => {
+    const operations: string[] = [];
+    const client = createMachineUpdateClient(async () => ({
+      name: 'running-vm',
+      state: 'running',
+      ports: [{ host: 8080, guest: 80 }]
+    }));
+    client.stopMachine = async () => {
+      operations.push('stop');
+      return {};
+    };
+    client.startMachine = async () => {
+      operations.push('start');
+      return {};
+    };
+
+    const response = await patchMachineUpdate(
+      {
+        locals: adminLocals(),
+        params: { name: 'running-vm' },
+        request: jsonRequest('http://local/api/smolvm/machines/running-vm/update', {
+          name: 'running-vm',
+          ports: [
+            { host: 8080, guest: 80 },
+            { host: 9090, guest: 90 }
+          ]
+        })
+      } as Parameters<typeof patchMachineUpdate>[0],
+      {
+        client,
+        runner: async () => {
+          operations.push('update');
+        }
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(operations).toEqual(['stop', 'update', 'start']);
+    expect(await response.json()).toMatchObject({ restartPerformed: true });
+  });
+
+  test('machine update route reports a stopped machine when update fails after stop', async () => {
+    const operations: string[] = [];
+    const client = createMachineUpdateClient(async () => ({
+      name: 'running-vm',
+      state: 'running',
+      env: { MODE: 'old' }
+    }));
+    client.stopMachine = async () => {
+      operations.push('stop');
+      return {};
+    };
+
+    const response = await patchMachineUpdate(
+      {
+        locals: adminLocals(),
+        params: { name: 'running-vm' },
+        request: jsonRequest('http://local/api/smolvm/machines/running-vm/update', {
+          name: 'running-vm',
+          env: { MODE: 'new' }
+        })
+      } as Parameters<typeof patchMachineUpdate>[0],
+      {
+        client,
+        runner: async () => {
+          operations.push('update');
+          throw new SmolVmError(SMOLVM_ERROR_CODES.REQUEST_FAILED, 'update failed', 502);
+        }
+      }
+    );
+
+    expect(response.status).toBe(502);
+    expect(operations).toEqual(['stop', 'update']);
+    expect(await response.json()).toMatchObject({
+      stage: 'update',
+      machineState: 'stopped',
+      restartPerformed: false
+    });
+  });
+
+  test('machine update route reports saved config when restart fails', async () => {
+    const operations: string[] = [];
+    const client = createMachineUpdateClient(async () => ({
+      name: 'running-vm',
+      state: 'running',
+      ports: []
+    }));
+    client.stopMachine = async () => {
+      operations.push('stop');
+      return {};
+    };
+    client.startMachine = async () => {
+      operations.push('start');
+      throw new SmolVmError(SMOLVM_ERROR_CODES.REQUEST_FAILED, 'start failed', 502);
+    };
+
+    const response = await patchMachineUpdate(
+      {
+        locals: adminLocals(),
+        params: { name: 'running-vm' },
+        request: jsonRequest('http://local/api/smolvm/machines/running-vm/update', {
+          name: 'running-vm',
+          ports: [{ host: 9090, guest: 90 }]
+        })
+      } as Parameters<typeof patchMachineUpdate>[0],
+      {
+        client,
+        runner: async () => {
+          operations.push('update');
+        }
+      }
+    );
+
+    expect(response.status).toBe(502);
+    expect(operations).toEqual(['stop', 'update', 'start']);
+    expect(await response.json()).toMatchObject({
+      stage: 'restart',
+      configUpdated: true,
+      machineState: 'stopped',
+      restartPerformed: false
+    });
+  });
+
   test('machine update route enforces recreate-required path with 409', async () => {
-    const response = await patchMachineUpdate({
-      locals: adminLocals(),
-      params: { name: 'vm one' }
-    } as Parameters<typeof patchMachineUpdate>[0]);
+    const client = createMachineUpdateClient(async () => ({
+      name: 'vm one',
+      state: 'stopped',
+      image: 'alpine:latest'
+    }));
+    const response = await patchMachineUpdate(
+      {
+        locals: adminLocals(),
+        params: { name: 'vm one' },
+        request: jsonRequest('http://local/api/smolvm/machines/vm%20one/update', {
+          name: 'vm one',
+          image: 'ubuntu'
+        })
+      } as Parameters<typeof patchMachineUpdate>[0],
+      { client }
+    );
 
     expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({
+    expect(await response.json()).toMatchObject({
       available: false,
       feature: 'machineUpdate',
       code: 'SMOLVM_RECREATE_REQUIRED',
       machine: 'vm one',
       message:
-        'SmolVM 0.8.1 does not expose a general live machine update API. Use the recreate endpoint for configuration changes.',
+        'These configuration fields require VM recreation through the recreate endpoint.',
+      fields: ['image', 'tag'],
       recreateEndpoint: '/api/smolvm/machines/vm%20one/recreate'
     });
   });
