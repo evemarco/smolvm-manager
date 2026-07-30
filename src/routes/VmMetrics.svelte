@@ -7,12 +7,19 @@
     AlertTriangle,
     Loader2,
     RefreshCw,
-    Activity
+    Activity,
+    Network
   } from '@lucide/svelte';
   import { createMetricsHistorySync, type MetricsHistorySync } from '$lib/client/pylon-sync';
-  import type { MetricsSnapshot, MetricsSample } from '$lib/types';
+  import type { MetricsSnapshot, MetricsSample, SmolVmMachine } from '$lib/types';
 
-  let { machineName }: { machineName: string } = $props();
+  let {
+    machineName,
+    machine
+  }: {
+    machineName: string;
+    machine?: SmolVmMachine | null;
+  } = $props();
 
   let snapshot: MetricsSnapshot | null = $state(null);
   let history: MetricsSample[] = $state([]);
@@ -72,6 +79,44 @@
   function formatTime(iso: string): string {
     return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
+
+  function formatCpuMillis(ms: number): string {
+    if (ms < 1000) return `${ms} ms`;
+    return `${(ms / 1000).toFixed(2)} s`;
+  }
+
+  function formatMb(mb: number): string {
+    if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+    return `${Math.round(mb)} MB`;
+  }
+
+  function formatBytes(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+    return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+  }
+
+  const perVmLive = $derived.by(() => {
+    if (!machine) return null;
+    const hasAny =
+      typeof machine.cpuMillis === 'number' ||
+      typeof machine.rssMb === 'number' ||
+      typeof machine.diskUsedMb === 'number' ||
+      typeof machine.egressBytes === 'number';
+    if (!hasAny) return null;
+    return {
+      cpuMillis: typeof machine.cpuMillis === 'number' ? machine.cpuMillis : null,
+      rssMb: typeof machine.rssMb === 'number' ? machine.rssMb : null,
+      diskUsedMb: typeof machine.diskUsedMb === 'number' ? machine.diskUsedMb : null,
+      egressBytes: typeof machine.egressBytes === 'number' ? machine.egressBytes : null
+    };
+  });
 
   async function fetchSnapshot() {
     loading = true;
@@ -165,8 +210,66 @@
       {error}
     </div>
   {:else if snapshot}
-    <!-- Per-VM unavailable notice -->
-    {#if snapshot.summary.perVmUnavailable}
+    {#if perVmLive}
+      <section aria-label="Per-VM live metrics" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {#if perVmLive.cpuMillis !== null}
+          <div class="rounded-xl border border-white/10 bg-slate-900/80 p-4">
+            <div class="flex items-center gap-3">
+              <div class="flex size-10 items-center justify-center rounded-lg bg-cyan-500/10">
+                <Cpu size={20} class="text-cyan-400" />
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-500">CPU time</p>
+                <p class="text-xl font-semibold text-white">
+                  {formatCpuMillis(perVmLive.cpuMillis)}
+                </p>
+              </div>
+            </div>
+          </div>
+        {/if}
+        {#if perVmLive.rssMb !== null}
+          <div class="rounded-xl border border-white/10 bg-slate-900/80 p-4">
+            <div class="flex items-center gap-3">
+              <div class="flex size-10 items-center justify-center rounded-lg bg-violet-500/10">
+                <MemoryStick size={20} class="text-violet-400" />
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-500">Memory (RSS)</p>
+                <p class="text-xl font-semibold text-white">{formatMb(perVmLive.rssMb)}</p>
+              </div>
+            </div>
+          </div>
+        {/if}
+        {#if perVmLive.diskUsedMb !== null}
+          <div class="rounded-xl border border-white/10 bg-slate-900/80 p-4">
+            <div class="flex items-center gap-3">
+              <div class="flex size-10 items-center justify-center rounded-lg bg-emerald-500/10">
+                <HardDrive size={20} class="text-emerald-400" />
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-500">Disk used</p>
+                <p class="text-xl font-semibold text-white">{formatMb(perVmLive.diskUsedMb)}</p>
+              </div>
+            </div>
+          </div>
+        {/if}
+        {#if perVmLive.egressBytes !== null}
+          <div class="rounded-xl border border-white/10 bg-slate-900/80 p-4">
+            <div class="flex items-center gap-3">
+              <div class="flex size-10 items-center justify-center rounded-lg bg-amber-500/10">
+                <Network size={20} class="text-amber-400" />
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-500">Egress</p>
+                <p class="text-xl font-semibold text-white">
+                  {formatBytes(perVmLive.egressBytes)}
+                </p>
+              </div>
+            </div>
+          </div>
+        {/if}
+      </section>
+    {:else if snapshot.summary.perVmUnavailable}
       <div
         class="flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-200"
       >

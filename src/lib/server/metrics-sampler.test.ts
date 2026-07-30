@@ -67,7 +67,21 @@ function createMockSmolVmClient(
         os: 'linux',
         layerCount: 0
       }
-    })
+    }),
+    getReadyz: async () => ({ status: 'ready' }),
+    drainNode: async () => null,
+    resizeMachine: async () => null,
+    forkMachine: async () => ({ name: 'fork' }),
+    exportMachine: async () => ({
+      digest: 'sha256:abc',
+      sizeBytes: 0,
+      platform: 'linux/amd64',
+      manifest: null
+    }),
+    runMachineImage: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+    uploadMachineFile: async () => null,
+    provisionVolume: async () => ({ id: 'vol', nodePath: '/tmp/vol' }),
+    deleteVolume: async () => null
   };
 }
 

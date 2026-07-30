@@ -17,9 +17,7 @@ function parseEvent(block: string): SseEvent | undefined {
   const payload: unknown = JSON.parse(data);
   return {
     event,
-    ...(payload && typeof payload === 'object'
-      ? { data: payload as Record<string, unknown> }
-      : {})
+    ...(payload && typeof payload === 'object' ? { data: payload as Record<string, unknown> } : {})
   };
 }
 
