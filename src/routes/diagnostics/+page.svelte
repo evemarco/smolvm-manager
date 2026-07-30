@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Activity, AlertCircle, RefreshCw } from '@lucide/svelte';
+  import { Activity, AlertCircle, RefreshCw, Loader2, ShieldAlert, Power } from '@lucide/svelte';
   import { invalidateAll } from '$app/navigation';
   import { onMount } from 'svelte';
   import type { PageProps } from './$types';
@@ -7,6 +7,11 @@
   let { data }: PageProps = $props();
   let mounted = $state(false);
   let refreshing = $state(false);
+
+  let drainOpen = $state(false);
+  let drainLoading = $state(false);
+  let drainError: string | null = $state(null);
+  let drainSuccess: string | null = $state(null);
 
   onMount(() => {
     mounted = true;
@@ -19,6 +24,29 @@
       await invalidateAll();
     } finally {
       refreshing = false;
+    }
+  }
+
+  async function submitDrain(): Promise<void> {
+    drainLoading = true;
+    drainError = null;
+    drainSuccess = null;
+    try {
+      const response = await fetch('/api/smolvm/drain', {
+        method: 'POST',
+        headers: { 'x-csrf-token': data.csrfToken ?? '' }
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? body?.message ?? `Drain failed (${response.status})`);
+      }
+      drainSuccess = 'Node drained — all running machines stopped.';
+      drainOpen = false;
+      await invalidateAll();
+    } catch (err) {
+      drainError = err instanceof Error ? err.message : 'Drain failed';
+    } finally {
+      drainLoading = false;
     }
   }
 </script>
@@ -43,17 +71,29 @@
     </div>
 
     <div class="flex shrink-0 flex-col items-start gap-2 sm:items-end">
-      <button
-        type="button"
-        class="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm text-slate-300 transition hover:bg-slate-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-        onclick={refreshDiagnostics}
-        disabled={!mounted || refreshing}
-        aria-label="Refresh diagnostics"
-        aria-busy={refreshing}
-      >
-        <RefreshCw size={14} class={refreshing ? 'animate-spin' : ''} />
-        {refreshing ? 'Refreshing' : 'Refresh'}
-      </button>
+      <div class="flex gap-2">
+        <button
+          type="button"
+          class="inline-flex items-center justify-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+          onclick={() => (drainOpen = true)}
+          disabled={!mounted}
+          aria-label="Drain the SmolVM node"
+        >
+          <Power size={14} />
+          Drain node
+        </button>
+        <button
+          type="button"
+          class="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm text-slate-300 transition hover:bg-slate-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          onclick={refreshDiagnostics}
+          disabled={!mounted || refreshing}
+          aria-label="Refresh diagnostics"
+          aria-busy={refreshing}
+        >
+          <RefreshCw size={14} class={refreshing ? 'animate-spin' : ''} />
+          {refreshing ? 'Refreshing' : 'Refresh'}
+        </button>
+      </div>
       <time datetime={data.refreshedAt} aria-live="polite" class="text-xs text-slate-400">
         Last refreshed {new Date(data.refreshedAt).toLocaleString()}
       </time>
@@ -62,7 +102,7 @@
 
   <section
     aria-label="Runtime versions"
-    class="grid grid-cols-1 gap-3 rounded-2xl border border-white/10 bg-slate-900/60 p-4 sm:grid-cols-3 sm:p-5"
+    class="grid grid-cols-1 gap-3 rounded-2xl border border-white/10 bg-slate-900/60 p-4 sm:grid-cols-4 sm:p-5"
   >
     <div>
       <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Manager build</p>
@@ -79,12 +119,89 @@
     <div>
       <p class="text-xs font-medium uppercase tracking-wide text-slate-500">SmolVM backend</p>
       <p class="mt-1 text-sm {data.health.smolvm.reachable ? 'text-emerald-300' : 'text-red-300'}">
-        {data.health.smolvm.reachable
-          ? (data.health.smolvm.version ?? 'reachable')
-          : 'unreachable'}
+        {data.health.smolvm.reachable ? (data.health.smolvm.version ?? 'reachable') : 'unreachable'}
       </p>
     </div>
+    <div>
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Readiness</p>
+      {#if data.readyz}
+        <p class="mt-1 text-sm text-emerald-300">{data.readyz.status}</p>
+      {:else}
+        <p class="mt-1 text-sm text-red-300">unavailable</p>
+      {/if}
+    </div>
   </section>
+
+  {#if drainSuccess}
+    <section
+      class="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-200"
+      role="status"
+    >
+      <ShieldAlert size={16} />
+      {drainSuccess}
+    </section>
+  {/if}
+
+  {#if drainOpen}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onclick={(e) => {
+        if (e.target === e.currentTarget && !drainLoading) drainOpen = false;
+      }}
+      onkeydown={(e) => {
+        if (e.key === 'Escape' && !drainLoading) drainOpen = false;
+      }}
+    >
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div
+        class="w-full max-w-md rounded-2xl border border-red-500/20 bg-slate-900 p-6 shadow-2xl"
+        onclick={(e) => e.stopPropagation()}
+      >
+        <div class="flex items-start gap-4">
+          <div
+            class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10"
+          >
+            <Power size={20} class="text-red-400" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <h2 class="text-lg font-semibold text-white">Drain node</h2>
+            <p class="mt-2 text-sm leading-relaxed text-slate-300">
+              This stops <span class="font-semibold text-red-300">ALL running machines</span> on the SmolVM
+              node. Running workloads will be terminated. This action cannot be undone.
+            </p>
+          </div>
+        </div>
+        {#if drainError}
+          <div
+            class="mt-4 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-sm text-red-300"
+            role="alert"
+          >
+            {drainError}
+          </div>
+        {/if}
+        <div class="mt-6 flex justify-end gap-3">
+          <button
+            class="rounded-lg border border-white/10 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white"
+            onclick={() => (drainOpen = false)}
+            disabled={drainLoading}
+          >
+            Cancel
+          </button>
+          <button
+            class="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            onclick={submitDrain}
+            disabled={drainLoading}
+          >
+            {#if drainLoading}
+              <Loader2 size={14} class="animate-spin" />
+            {/if}
+            Drain node
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 
   {#if data.diagnostics.length === 0}
     <section
