@@ -56,6 +56,9 @@ async function loginAsAdmin(page: Page) {
 }
 
 async function mockMachines(page: Page) {
+  await page.route('**/api/smolvm/machines/stream', async () => {
+    await new Promise<void>(() => undefined);
+  });
   await page.route('**/api/smolvm/machines', async (route) => {
     await route.fulfill({
       status: 200,

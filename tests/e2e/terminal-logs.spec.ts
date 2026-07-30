@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 declare global {
   interface Window {
     __terminalFrames: string[];
+    __terminalConnections: string[];
   }
 }
 
@@ -54,13 +55,21 @@ async function loginAsAdmin(page: Page) {
   await expect(firstState.dashboardHeading).toBeVisible({ timeout: 15000 });
 }
 
-async function mockMachines(page: Page) {
+async function mockMachines(
+  page: Page,
+  machines: Array<Record<string, unknown>> = [
+    { name: 'stream-vm', status: 'running', state: 'running', cpus: 2 }
+  ]
+) {
+  await page.route('**/api/smolvm/machines/stream', async () => {
+    await new Promise<void>(() => undefined);
+  });
   await page.route('**/api/smolvm/machines', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        machines: [{ name: 'stream-vm', status: 'running', state: 'running', cpus: 2 }]
+        machines
       })
     });
   });
@@ -192,5 +201,74 @@ test.describe('logs and terminal tabs', () => {
 
     await page.getByRole('button', { name: 'Close terminal' }).click();
     await expect(page.getByText('Closed', { exact: true })).toBeVisible();
+  });
+
+  test('terminal session persists across tab and VM navigation', async ({ page }) => {
+    await page.addInitScript(() => {
+      window.__terminalConnections = [];
+
+      class FakeWebSocket extends EventTarget {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+        binaryType: 'arraybuffer' | 'blob' = 'arraybuffer';
+        readyState = FakeWebSocket.CONNECTING;
+
+        constructor(readonly url: string) {
+          super();
+          if (url.includes('/terminal/ws')) window.__terminalConnections.push(url);
+          const machineName = url.includes('second-vm') ? 'second-vm' : 'stream-vm';
+          setTimeout(() => {
+            this.readyState = FakeWebSocket.OPEN;
+            this.dispatchEvent(new Event('open'));
+            this.dispatchEvent(
+              new MessageEvent('message', {
+                data: new TextEncoder().encode(`session:${machineName}\r\n`).buffer
+              })
+            );
+          }, 20);
+        }
+
+        send() {}
+
+        close(code = 1000, reason = '') {
+          this.readyState = FakeWebSocket.CLOSED;
+          this.dispatchEvent(new CloseEvent('close', { code, reason }));
+        }
+      }
+
+      window.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+    });
+
+    await mockMachines(page, [
+      { name: 'stream-vm', status: 'running', state: 'running', cpus: 2 },
+      { name: 'second-vm', status: 'running', state: 'running', cpus: 1 }
+    ]);
+    await loginAsAdmin(page);
+
+    await page.getByRole('button', { name: 'View details for stream-vm' }).click();
+    await page.getByRole('tab', { name: 'Terminal' }).click();
+    await page.getByRole('button', { name: 'I understand, open terminal' }).click();
+    await expect(page.locator('.xterm-rows')).toContainText('session:stream-vm');
+
+    await page.getByRole('tab', { name: 'Overview' }).click();
+    await page.getByRole('tab', { name: 'Terminal' }).click();
+    await expect(page.locator('.xterm-rows')).toContainText('session:stream-vm');
+    await expect(page.getByRole('button', { name: 'I understand, open terminal' })).toBeHidden();
+
+    await page.getByRole('button', { name: 'Back to machine list' }).click();
+    await page.getByRole('button', { name: 'View details for second-vm' }).click();
+    await page.getByRole('tab', { name: 'Terminal' }).click();
+    await page.getByRole('button', { name: 'I understand, open terminal' }).click();
+    await expect(page.locator('.xterm-rows')).toContainText('session:second-vm');
+
+    await page.getByRole('button', { name: 'Back to machine list' }).click();
+    await page.getByRole('button', { name: 'View details for stream-vm' }).click();
+    await page.getByRole('tab', { name: 'Terminal' }).click();
+    await expect(page.locator('.xterm-rows')).toContainText('session:stream-vm');
+    await expect
+      .poll(() => page.evaluate(() => window.__terminalConnections.length))
+      .toBe(2);
   });
 });
