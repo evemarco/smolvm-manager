@@ -1076,6 +1076,7 @@ describe('SmolVM facade routes', () => {
           name: 'running-vm',
           image: 'docker.io/osminogin/tor-simple',
           tag: 'latest',
+          sshAgent: false,
           cpus: 2,
           memory: 512,
           ports: [

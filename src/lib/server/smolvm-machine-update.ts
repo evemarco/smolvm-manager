@@ -17,6 +17,7 @@ export type SmolVmMachineUpdatePlan = {
 };
 
 const IGNORABLE_UNKNOWN_ORIGINAL_FIELDS = new Set<keyof VmConfig>(['image', 'tag']);
+const IGNORABLE_UNKNOWN_FALSE_FIELDS = new Set<keyof VmConfig>(['sshAgent']);
 
 const UPDATE_SUPPORTED_FIELDS = new Set<keyof VmConfig>([
   'cpus',
@@ -101,7 +102,14 @@ export function buildMachineUpdatePlan(
       !(diff.oldValue === undefined && IGNORABLE_UNKNOWN_ORIGINAL_FIELDS.has(diff.field))
   );
   const unsupportedLiveUpdate = diffs.filter(
-    (diff) => !diff.requiresRecreate && !UPDATE_SUPPORTED_FIELDS.has(diff.field)
+    (diff) =>
+      !diff.requiresRecreate &&
+      !UPDATE_SUPPORTED_FIELDS.has(diff.field) &&
+      !(
+        diff.oldValue === undefined &&
+        diff.newValue === false &&
+        IGNORABLE_UNKNOWN_FALSE_FIELDS.has(diff.field)
+      )
   );
   const command = [getSmolVmCommand(), 'machine', 'update', '--name', original.name];
 
