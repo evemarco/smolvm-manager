@@ -3,6 +3,7 @@ import {
   normalizeSmolVmError,
   type SmolVmClient
 } from '$lib/server/smolvm-client';
+import { parseCapacityResponse } from '$lib/server/metrics-parser';
 import { sseEncode } from '$lib/server/smolvm-streaming';
 
 export const MACHINE_STREAM_POLL_MS = 1_000;
@@ -54,7 +55,10 @@ export function createMachineStreamBroadcaster(
         client.listMachines(),
         client.getCapacity()
       ]);
-      const snapshot: MachineStreamSnapshot = { machines: machineList.machines, capacity };
+      const snapshot: MachineStreamSnapshot = {
+        machines: machineList.machines,
+        capacity: parseCapacityResponse(capacity)
+      };
       const json = JSON.stringify(snapshot);
       if (json !== lastJson) {
         lastJson = json;
@@ -133,8 +137,13 @@ export async function createMachineStreamSseResponse(
   const broadcaster = getSharedBroadcaster(context.client ?? getSmolVmClient(), context.pollMs);
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | undefined;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
 
   const cleanup = () => {
+    if (heartbeat) {
+      clearInterval(heartbeat);
+      heartbeat = undefined;
+    }
     unsubscribe?.();
     unsubscribe = undefined;
   };
@@ -142,21 +151,48 @@ export async function createMachineStreamSseResponse(
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false;
+      const safeEnqueue = (chunk: string): boolean => {
+        try {
+          controller.enqueue(encoder.encode(chunk));
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      const closeStream = () => {
+        if (closed) return;
+        closed = true;
+        safeEnqueue(': bye\n\n');
+        try {
+          controller.close();
+        } catch {
+          // stream already closed
+        }
+      };
+      const fail = () => {
+        cleanup();
+        // Close so the browser's EventSource reconnects and resubscribes
+        // instead of hanging on a silent, half-open connection.
+        closeStream();
+      };
       unsubscribe = broadcaster.subscribe({
         emit(event, data) {
           if (closed) return;
-          try {
-            controller.enqueue(encoder.encode(sseEncode(event, data)));
-          } catch {
-            closed = true;
-            cleanup();
-          }
+          if (!safeEnqueue(sseEncode(event, data))) fail();
         }
       });
-      if (context.request.signal.aborted) cleanup();
-      else context.request.signal.addEventListener('abort', cleanup, { once: true });
+      heartbeat = setInterval(() => {
+        if (closed) return;
+        if (!safeEnqueue(': keepalive\n\n')) fail();
+      }, 15_000);
+      const onAbort = () => {
+        cleanup();
+        closeStream();
+      };
+      if (context.request.signal.aborted) onAbort();
+      else context.request.signal.addEventListener('abort', onAbort, { once: true });
     },
-    cancel: cleanup
+    cancel: () => cleanup()
   });
 
   return new Response(stream, {

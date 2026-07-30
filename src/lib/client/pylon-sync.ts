@@ -88,12 +88,21 @@ let syncModulePromise: Promise<SyncModule> | null = null;
 let engineFactoryOverride: SyncModule['createSyncEngine'] | null = null;
 let subCounter = 0;
 
+const DEFAULT_PYLON_PORT = 4321;
+let pylonSyncPort: number | null = null;
+
+export function setPylonSyncPort(port: number | null): void {
+  pylonSyncPort = port;
+}
+
 function isBrowser(): boolean {
   return typeof window !== 'undefined';
 }
 
 function getBaseUrl(): string {
-  return isBrowser() ? window.location.origin : 'http://localhost:3000';
+  if (!isBrowser()) return 'http://localhost:3000';
+  const { protocol, hostname } = window.location;
+  return `${protocol}//${hostname}:${pylonSyncPort ?? DEFAULT_PYLON_PORT}`;
 }
 
 async function loadSyncModule(): Promise<SyncModule> {

@@ -84,6 +84,41 @@ test('machine stream requires an admin session', async () => {
   expect(response.status).toBe(401);
 });
 
+test('machine stream normalizes raw snake_case capacity to CapacityData', async () => {
+  __resetMachineStreamForTests();
+  const transport: SmolVmTransport = async (_socketPath, options) => {
+    if (options.path === '/capacity') {
+      return {
+        status: 200,
+        headers: {},
+        body: JSON.stringify({
+          allocated_cpus: 4,
+          allocated_memory_mb: 1024,
+          used_cpus: 1.5,
+          used_memory_mb: 353,
+          used_disk_gb: 2,
+          boot_id: 'abc'
+        })
+      };
+    }
+    return { status: 200, headers: {}, body: JSON.stringify({ machines: [] }) };
+  };
+  const response = await createMachineStreamSseResponse(
+    authenticatedContext(createSmolVmClient({ transport }))
+  );
+  const { events } = collectEvents(response);
+
+  await waitFor(() => events.filter((event) => event.event === 'snapshot').length === 1);
+  expect(events[1]?.data?.capacity).toEqual({
+    allocatedCpus: 4,
+    allocatedMemoryMb: 1024,
+    usedCpus: 1.5,
+    usedMemoryMb: 353,
+    usedDiskGb: 2
+  });
+  __resetMachineStreamForTests();
+});
+
 test('machine stream pushes a snapshot only when machine state changes', async () => {
   __resetMachineStreamForTests();
   const state = { machines: [{ name: 'vm1', state: 'stopped' }] };

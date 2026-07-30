@@ -2,10 +2,15 @@
   import { Menu, X, Settings, LayoutDashboard, ScrollText, Activity } from '@lucide/svelte';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
+  import { setPylonSyncPort } from '$lib/client/pylon-sync';
   import '../app.css';
 
   let { children, data } = $props();
   let mobileMenuOpen = $state(false);
+
+  $effect(() => {
+    setPylonSyncPort(data.pylonPort);
+  });
 
   function closeMobileMenu() {
     mobileMenuOpen = false;

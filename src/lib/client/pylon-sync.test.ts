@@ -5,6 +5,7 @@ import {
   createSavedVmConfigsSync,
   createUiPreferenceSync,
   getSyncEngine,
+  setPylonSyncPort,
   stopSyncEngine
 } from './pylon-sync';
 
@@ -68,6 +69,7 @@ const originalWindow = globalThis.window;
 
 afterEach(() => {
   __setSyncEngineFactoryForTests(null);
+  setPylonSyncPort(null);
   if (originalWindow === undefined) {
     delete (globalThis as { window?: Window }).window;
   } else {
@@ -76,7 +78,10 @@ afterEach(() => {
 });
 
 function installWindow(origin = 'http://manager.test'): void {
-  (globalThis as { window: Window }).window = { location: { origin } } as Window;
+  const url = new URL(origin);
+  (globalThis as { window: Window }).window = {
+    location: { origin, protocol: url.protocol, hostname: url.hostname }
+  } as Window;
 }
 
 function createMetricsRow(index: number) {
@@ -118,7 +123,7 @@ describe('pylon client sync', () => {
     expect(await getSyncEngine()).toBe(mockEngine);
     expect(factoryCalls).toEqual([
       {
-        baseUrl: 'http://manager.test',
+        baseUrl: 'http://manager.test:4321',
         options: {
           appName: 'smolvm-manager',
           persist: true,
@@ -130,6 +135,21 @@ describe('pylon client sync', () => {
 
     stopSyncEngine();
     expect(mockEngine.stopCalls).toBe(1);
+  });
+
+  test('targets the Pylon port injected by the server layout', async () => {
+    installWindow('http://manager.test');
+    setPylonSyncPort(4399);
+    const mockEngine = new MockSyncEngine();
+    const factoryCalls: Array<{ baseUrl?: string }> = [];
+    __setSyncEngineFactoryForTests((baseUrl) => {
+      factoryCalls.push({ baseUrl });
+      return mockEngine;
+    });
+
+    await getSyncEngine();
+
+    expect(factoryCalls).toEqual([{ baseUrl: 'http://manager.test:4399' }]);
   });
 
   test('syncs UiPreference through reactive subscription and setter action', async () => {
