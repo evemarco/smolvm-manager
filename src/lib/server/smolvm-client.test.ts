@@ -86,6 +86,108 @@ test('smolvm-client parses machine list JSON', async () => {
   expect(result.machines[0].name).toBe('alpha');
 });
 
+const BUSYBOX_IMAGE = {
+  reference: 'docker.io/library/busybox:latest',
+  digest: 'sha256:abc',
+  size: 1,
+  architecture: 'amd64',
+  os: 'linux',
+  layerCount: 1
+};
+
+function createImageAwareTransport(machines: unknown[], createdAtPath = '/api/v1/machines') {
+  const calls: SmolVmRequestOptions[] = [];
+  const transport: SmolVmTransport = async (_socket, options) => {
+    calls.push(options);
+    if (options.path === createdAtPath || options.path === '/api/v1/machines/alpha') {
+      if (options.path === createdAtPath) return response(200, { machines });
+      return response(200, (machines as unknown[])[0]);
+    }
+    if (options.path === '/api/v1/machines/alpha/images') {
+      return response(200, { images: [BUSYBOX_IMAGE] });
+    }
+    return response(404, { error: 'not found' });
+  };
+  return { calls, transport };
+}
+
+test('listMachines enriches machines with the pulled image reference and caches it', async () => {
+  const { calls, transport } = createImageAwareTransport([
+    { name: 'alpha', state: 'running', createdAt: 100 }
+  ]);
+  const client = createSmolVmClient({ transport });
+
+  const first = await client.listMachines();
+  expect(first.machines[0].image).toBe('docker.io/library/busybox:latest');
+
+  await client.listMachines();
+  const imageCalls = calls.filter((c) => c.path === '/api/v1/machines/alpha/images');
+  expect(imageCalls).toHaveLength(1);
+});
+
+test('listMachines refetches the image when the machine was recreated', async () => {
+  const machines = [{ name: 'alpha', state: 'running', createdAt: 100 }];
+  const { calls, transport } = createImageAwareTransport(machines);
+  const client = createSmolVmClient({ transport });
+
+  await client.listMachines();
+  machines[0] = { name: 'alpha', state: 'running', createdAt: 200 };
+  await client.listMachines();
+
+  const imageCalls = calls.filter((c) => c.path === '/api/v1/machines/alpha/images');
+  expect(imageCalls).toHaveLength(2);
+});
+
+test('getMachine enriches the machine with the pulled image reference', async () => {
+  const { transport } = createImageAwareTransport([
+    { name: 'alpha', state: 'running', createdAt: 100 }
+  ]);
+  const client = createSmolVmClient({ transport });
+
+  const machine = await client.getMachine('alpha');
+  expect(machine.image).toBe('docker.io/library/busybox:latest');
+});
+
+test('listMachines still resolves when the images endpoint fails', async () => {
+  const transport: SmolVmTransport = async (_socket, options) => {
+    if (options.path === '/api/v1/machines') {
+      return response(200, { machines: [{ name: 'alpha', state: 'running', createdAt: 100 }] });
+    }
+    return response(500, { error: 'boom' });
+  };
+  const client = createSmolVmClient({ transport });
+
+  const result = await client.listMachines();
+  expect(result.machines[0].name).toBe('alpha');
+  expect(result.machines[0].image).toBeUndefined();
+});
+
+test('createMachine caches the requested image for machines that never started', async () => {
+  const transport: SmolVmTransport = async (_socket, options) => {
+    if (options.path === '/api/v1/machines' && options.method === 'POST') {
+      return response(200, { name: 'fresh', state: 'stopped', createdAt: 100 });
+    }
+    if (options.path === '/api/v1/machines') {
+      return response(200, { machines: [{ name: 'fresh', state: 'stopped', createdAt: 100 }] });
+    }
+    if (options.path === '/api/v1/machines/fresh/images') {
+      return response(200, { images: [] });
+    }
+    return response(404, { error: 'not found' });
+  };
+  const client = createSmolVmClient({ transport });
+
+  await client.createMachine({ name: 'fresh', image: 'docker.io/library/busybox:latest' });
+  const list = await client.listMachines();
+
+  expect(list.machines[0].image).toBe('docker.io/library/busybox:latest');
+});
+
+test('getSmolVmClient returns a shared singleton so stream subscribers share one broadcaster', async () => {
+  const { getSmolVmClient } = await import('./smolvm-client');
+  expect(getSmolVmClient()).toBe(getSmolVmClient());
+});
+
 test('smolvm-client normalizes invalid JSON as bad response', async () => {
   const client = createSmolVmClient({
     transport: async () => ({ status: 200, headers: {}, body: 'not-json' })

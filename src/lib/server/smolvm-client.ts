@@ -472,6 +472,38 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
   const transport = options.transport ?? requestOverUnixSocket;
   const streamTransport = options.streamTransport ?? streamOverUnixSocket;
 
+  // SmolVM consumes `image` at pull time and never returns it on machine
+  // payloads; the reference stays available on the per-machine /images
+  // endpoint. Enrich machines from there, cached by (name, createdAt) so the
+  // 1s dashboard stream stays cheap and a recreate re-resolves.
+  const imageCache = new Map<string, { createdAt: unknown; image: string | null }>();
+
+  const fetchMachineImageList = (name: string): Promise<SmolVmImageList> =>
+    callSmolVm(
+      socketPath,
+      transport,
+      { method: 'GET', path: `/api/v1/machines/${safeMachinePath(name)}/images` },
+      (value) => asImageList(name, value)
+    );
+
+  const enrichMachineImage = async (machine: SmolVmMachine): Promise<void> => {
+    if (typeof machine.image === 'string' && machine.image.length > 0) return;
+    const createdAt = machine.createdAt;
+    const cached = imageCache.get(machine.name);
+    if (cached && createdAt !== undefined && cached.createdAt === createdAt) {
+      if (cached.image) machine.image = cached.image;
+      return;
+    }
+    const result = await fetchMachineImageList(machine.name).then(
+      (list) => list,
+      () => null
+    );
+    if (!result) return;
+    const image = result.images[0]?.reference ?? null;
+    if (createdAt !== undefined) imageCache.set(machine.name, { createdAt, image });
+    if (image) machine.image = image;
+  };
+
   return {
     socketPath,
 
@@ -510,7 +542,10 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
         transport,
         { method: 'GET', path: '/api/v1/machines' },
         asMachineList
-      );
+      ).then(async (list) => {
+        await Promise.all(list.machines.map(enrichMachineImage));
+        return list;
+      });
     },
 
     getMachine(name) {
@@ -519,7 +554,10 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
         transport,
         { method: 'GET', path: `/api/v1/machines/${safeMachinePath(name)}` },
         asMachine
-      );
+      ).then(async (machine) => {
+        await enrichMachineImage(machine);
+        return machine;
+      });
     },
 
     startMachine(name) {
@@ -546,7 +584,10 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
         transport,
         { method: 'DELETE', path: `/api/v1/machines/${safeMachinePath(name)}` },
         (value) => value as SmolVmActionResult
-      );
+      ).then((result) => {
+        imageCache.delete(name);
+        return result;
+      });
     },
 
     async openLogStream(name, options) {
@@ -620,7 +661,16 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
           body
         },
         asMachine
-      );
+      ).then((machine) => {
+        if (
+          typeof body.image === 'string' &&
+          body.image.length > 0 &&
+          machine.createdAt !== undefined
+        ) {
+          imageCache.set(machine.name, { createdAt: machine.createdAt, image: body.image });
+        }
+        return machine;
+      });
     },
 
     execMachine(name, body) {
@@ -674,8 +724,14 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
   };
 }
 
+let sharedClient: SmolVmClient | null = null;
+
+// One process-wide client: the machine-stream broadcaster keys its singleton
+// on client identity, so per-request clients would reset it and freeze every
+// open dashboard stream.
 export function getSmolVmClient(): SmolVmClient {
-  return createSmolVmClient();
+  sharedClient ??= createSmolVmClient();
+  return sharedClient;
 }
 
 export function normalizeSmolVmError(error: unknown): SmolVmErrorJson {
