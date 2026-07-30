@@ -82,6 +82,18 @@ async function mockMachines(page: Page, machines: Array<Record<string, unknown>>
       body: JSON.stringify({ machines })
     });
   });
+  for (const machine of machines) {
+    await page.route(
+      `**/api/smolvm/machines/${encodeURIComponent(String(machine.name))}`,
+      async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(machine)
+        });
+      }
+    );
+  }
 }
 
 async function waitForDashboardReady(page: Page) {
@@ -251,7 +263,10 @@ net = true`;
     await expect(page.getByText('Invalid TOML')).toBeVisible();
   });
 
-  test('shows recreate-required warning when changing image in edit mode', async ({ page }) => {
+  test('preserves the creation image when editing from a machine list without image data', async ({
+    page
+  }) => {
+    let submittedConfig: unknown;
     await mockMachines(page, [
       { name: 'edit-vm', status: 'stopped', state: 'stopped', cpus: 2, memoryMb: 512 }
     ]);
@@ -266,9 +281,16 @@ net = true`;
           state: 'stopped',
           cpus: 2,
           memoryMb: 512,
-          image: 'alpine',
-          tag: 'latest'
+          image: 'docker.io/osminogin/tor-simple:latest'
         })
+      });
+    });
+    await page.route('**/api/smolvm/machines/edit-vm/update', async (route) => {
+      submittedConfig = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ name: 'edit-vm', state: 'stopped', restartPerformed: false })
       });
     });
 
@@ -280,7 +302,21 @@ net = true`;
     await page.getByRole('button', { name: 'Edit Configuration' }).click();
 
     await expect(page.getByText('Editing')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Save Changes' })).toBeVisible();
+    await expect(page.getByPlaceholder('alpine, nginx, etc.')).toHaveValue(
+      'docker.io/osminogin/tor-simple'
+    );
+    await expect(page.getByPlaceholder('latest')).toHaveValue('latest');
+    await page.getByLabel('CPUs').fill('3');
+    await page.getByRole('button', { name: 'Save Changes' }).click();
+
+    await expect
+      .poll(() => submittedConfig)
+      .toMatchObject({
+        image: 'docker.io/osminogin/tor-simple',
+        tag: 'latest',
+        cpus: 3
+      });
+    await expect(page.getByRole('button', { name: 'Save Changes' })).toBeHidden();
   });
 
   test('shows Save & Restart confirmation when editing a running VM', async ({ page }) => {

@@ -284,7 +284,26 @@
     vmFormOpen = true;
   }
 
-  function openEditVm(machine: SmolVmMachine) {
+  async function openEditVm(summary: SmolVmMachine) {
+    let response: Response;
+    try {
+      response = await fetch(`/api/smolvm/machines/${encodeURIComponent(summary.name)}`);
+    } catch (err) {
+      toasts.push(
+        err instanceof Error ? err.message : 'Failed to load machine configuration',
+        'error'
+      );
+      return;
+    }
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      toasts.push(
+        body?.message ?? `Failed to load machine configuration (${response.status})`,
+        'error'
+      );
+      return;
+    }
+    const machine: SmolVmMachine = { ...summary, ...(await response.json()) };
     vmFormMode = 'edit';
     vmFormExistingName = machine.name;
     vmFormMachineRunning = machine.state === 'running' || machine.status === 'running';
