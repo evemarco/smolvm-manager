@@ -247,13 +247,18 @@
       return;
     }
 
+    const submissionConfig = getSubmissionConfig();
+
     // For edit mode, check if recreate-required fields changed
     if (mode === 'edit' && initialConfig) {
       const diffs: ConfigDiff[] = [];
-      const allKeys = new Set<string>([...Object.keys(initialConfig), ...Object.keys(config)]);
+      const allKeys = new Set<string>([
+        ...Object.keys(initialConfig),
+        ...Object.keys(submissionConfig)
+      ]);
       for (const key of allKeys) {
         const oldVal = (initialConfig as Record<string, unknown>)[key];
-        const newVal = (config as Record<string, unknown>)[key];
+        const newVal = (submissionConfig as Record<string, unknown>)[key];
         if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
           diffs.push({
             field: key,
@@ -278,17 +283,25 @@
 
     saving = true;
     try {
-      await onSave?.(config, 'save');
+      await onSave?.(submissionConfig, 'save');
     } finally {
       saving = false;
     }
+  }
+
+  function getSubmissionConfig(): VmConfig {
+    const submission = $state.snapshot(config) as VmConfig;
+    if (mode === 'edit' && initialConfig?.sshAgent === undefined && submission.sshAgent === false) {
+      delete submission.sshAgent;
+    }
+    return submission;
   }
 
   async function confirmRecreate() {
     recreateConfirmOpen = false;
     saving = true;
     try {
-      await onSave?.(config, 'recreate');
+      await onSave?.(getSubmissionConfig(), 'recreate');
     } finally {
       saving = false;
     }
@@ -298,7 +311,7 @@
     restartConfirmOpen = false;
     saving = true;
     try {
-      await onSave?.(config, 'restart');
+      await onSave?.(getSubmissionConfig(), 'restart');
     } finally {
       saving = false;
     }

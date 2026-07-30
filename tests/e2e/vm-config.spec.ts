@@ -348,6 +348,52 @@ net = true`;
     await expect(page.getByRole('button', { name: 'Save & Restart', exact: true })).toHaveCount(2);
   });
 
+  test('submits only live-update fields when adding a port to a stopped VM', async ({ page }) => {
+    let submittedConfig: Record<string, unknown> | undefined;
+    await mockMachines(page, [
+      {
+        name: 'port-vm',
+        status: 'stopped',
+        state: 'stopped',
+        cpus: 2,
+        memoryMb: 512,
+        network: true,
+        ports: [{ host: 49050, guest: 9050 }]
+      }
+    ]);
+    await page.route('**/api/smolvm/machines/port-vm/update', async (route) => {
+      submittedConfig = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ name: 'port-vm', state: 'stopped', restartPerformed: false })
+      });
+    });
+
+    await loginAsAdmin(page);
+    await expect(page.getByText('port-vm')).toBeVisible();
+    await page.getByRole('button', { name: 'View details for port-vm' }).click();
+    await page.getByRole('tab', { name: 'Config' }).click();
+    await page.getByRole('button', { name: 'Edit Configuration' }).click();
+
+    await page.getByRole('button', { name: 'Network & Ports' }).click();
+    await page.getByPlaceholder('Host port').fill('49051');
+    await page.getByPlaceholder('Guest port').fill('9051');
+    await page.getByRole('button', { name: 'Add' }).first().click();
+    await page.getByRole('button', { name: 'Save Changes' }).click();
+
+    await expect
+      .poll(() => submittedConfig)
+      .toMatchObject({
+        name: 'port-vm',
+        ports: [
+          { host: 49050, guest: 9050 },
+          { host: 49051, guest: 9051 }
+        ]
+      });
+    expect(submittedConfig).not.toHaveProperty('sshAgent');
+  });
+
   test('copy VM config creates new name', async ({ page }) => {
     await mockMachines(page, [
       { name: 'source-vm', status: 'stopped', state: 'stopped', cpus: 2, memoryMb: 512 }
