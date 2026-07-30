@@ -707,7 +707,7 @@
 
   <!-- Capacity summary -->
   {#if capacity}
-    <div class="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3 sm:gap-4">
+    <div class="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-4">
       <div
         class="flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2.5"
       >
@@ -769,7 +769,7 @@
               title="Create VM from &quot;{cfg.name}&quot;"
             >
               <Bookmark size={14} class="text-cyan-400/60 group-hover:text-cyan-400" />
-              <span class="max-w-[200px] truncate">{cfg.name}</span>
+              <span class="max-w-50 truncate">{cfg.name}</span>
               <span class="text-xs text-slate-500">{cfg.machineName}</span>
             </button>
           {/each}

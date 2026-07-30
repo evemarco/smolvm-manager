@@ -980,13 +980,13 @@
               type="text"
               bind:value={newVolumeHost}
               placeholder="/host/path"
-              class="flex-1 min-w-[140px] rounded-lg border border-white/10 bg-slate-950 px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none"
+              class="min-w-35 flex-1 rounded-lg border border-white/10 bg-slate-950 px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none"
             />
             <input
               type="text"
               bind:value={newVolumeGuest}
               placeholder="/guest/path"
-              class="flex-1 min-w-[140px] rounded-lg border border-white/10 bg-slate-950 px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none"
+              class="min-w-35 flex-1 rounded-lg border border-white/10 bg-slate-950 px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none"
             />
             <label class="flex items-center gap-1.5 text-xs text-slate-400">
               <input
