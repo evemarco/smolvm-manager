@@ -19,6 +19,12 @@ async function loginAsAdmin(page: Page) {
   await expect(page).toHaveURL('/');
 }
 
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/smolvm/machines/stream', async () => {
+    await new Promise<void>(() => undefined);
+  });
+});
+
 test.describe('navigation and accessibility', () => {
   test('skip-to-content link is present and functional', async ({ page }) => {
     await loginAsAdmin(page);
@@ -82,9 +88,8 @@ test.describe('navigation and accessibility', () => {
     const tablist = page.getByRole('tablist');
     await expect(tablist).toBeVisible();
 
-    // All tabs should have role="tab" (Overview, Config, Logs, Guest logs, Terminal, Metrics)
     const tabs = page.getByRole('tab');
-    await expect(tabs).toHaveCount(6);
+    await expect(tabs).toHaveCount(7);
 
     // Active tab should have aria-selected
     const overviewTab = page.getByRole('tab', { name: 'Overview' });

@@ -73,7 +73,7 @@
 
 <div class="flex flex-col gap-6">
   <!-- Back + header -->
-  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+  <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
     <button
       class="self-start rounded-lg border border-white/10 bg-slate-800/80 p-2 text-slate-400 transition hover:bg-slate-700 hover:text-white"
       onclick={onBack}
@@ -187,12 +187,15 @@
   </div>
 
   <!-- Tabs -->
-  <div role="tablist" class="flex gap-1 rounded-xl border border-white/10 bg-slate-900/60 p-1">
+  <div
+    role="tablist"
+    class="flex flex-wrap gap-1 rounded-xl border border-white/10 bg-slate-900/60 p-1"
+  >
     {#each tabs as tab (tab.id)}
       <button
         role="tab"
         aria-selected={activeTab === tab.id}
-        class="rounded-lg px-4 py-2 text-sm font-medium transition {activeTab === tab.id
+        class="shrink-0 rounded-lg px-4 py-2 text-sm font-medium transition {activeTab === tab.id
           ? 'bg-cyan-500/20 text-cyan-300'
           : tab.disabled
             ? 'cursor-not-allowed text-slate-600'
