@@ -13,6 +13,14 @@ import * as machineExecRoute from './machines/[name]/exec/+server';
 import * as machineFilesRoute from './machines/[name]/files/+server';
 import * as machineLogsRoute from './machines/[name]/logs/+server';
 import * as machineTerminalRoute from './machines/[name]/terminal/+server';
+import * as machineResizeRoute from './machines/[name]/resize/+server';
+import * as machineForkRoute from './machines/[name]/fork/+server';
+import * as machineExportRoute from './machines/[name]/export/+server';
+import * as machineRunRoute from './machines/[name]/run/+server';
+import * as readyzRoute from './readyz/+server';
+import * as drainRoute from './drain/+server';
+import * as volumesRoute from './volumes/+server';
+import * as volumeRoute from './volumes/[id]/+server';
 import * as imagesRoute from './images/+server';
 import * as healthRoute from './health/+server';
 import * as capacityRoute from './capacity/+server';
@@ -149,7 +157,40 @@ function createSmolVmClientMock() {
         os: 'linux',
         layerCount: 2
       }
-    })
+    }),
+    getReadyz: async () => ({ status: 'ready' }),
+    drainNode: async () => ({ drained: true }),
+    resizeMachine: async (name: string, body: { storageGb?: number; overlayGb?: number }) => ({
+      name,
+      resized: body
+    }),
+    forkMachine: async (name: string, body: { name: string }) => ({
+      name: body.name,
+      forkedFrom: name
+    }),
+    exportMachine: async () => ({
+      digest: 'sha256:abc',
+      sizeBytes: 1234,
+      platform: 'linux/amd64',
+      manifest: null
+    }),
+    runMachineImage: async (name: string, body: { command?: string[] }) => ({
+      exitCode: 0,
+      stdout: `${name}:${body.command?.join(' ') ?? ''}`,
+      stderr: ''
+    }),
+    uploadMachineFile: async (name: string, path: string, content: string) => ({
+      name,
+      path,
+      uploaded: content.length
+    }),
+    provisionVolume: async (body: { sizeGb: number; backend?: string }) => ({
+      id: 'vol-1',
+      nodePath: '/var/smolvm/vol-1',
+      sizeGb: body.sizeGb,
+      ...(body.backend ? { backend: body.backend } : {})
+    }),
+    deleteVolume: async (id: string) => ({ id, deleted: true })
   };
 }
 
@@ -174,7 +215,7 @@ function createManagerStoreMock() {
   };
 }
 
-function installSmolVmClientMock(client = createSmolVmClientMock()) {
+function installSmolVmClientMock(client: unknown = createSmolVmClientMock()) {
   mock.module('$lib/server/smolvm-client', () => ({
     getSmolVmClient: () => client,
     normalizeSmolVmError: (error: unknown) => ({
@@ -429,6 +470,263 @@ describe('SmolVM facade routes', () => {
       name: 'vm-alpha',
       image: 'alpine',
       created: true
+    });
+  });
+
+  test('smolvm 1.7 routes keep auth gates, validation, and success shapes', async () => {
+    installSmolVmClientMock();
+    const store = installManagerStoreMock();
+
+    expect(
+      await readyzRoute.GET({ locals: anonLocals() } as Parameters<typeof readyzRoute.GET>[0])
+    ).toMatchObject({ status: 401 });
+    const readyzResponse = await readyzRoute.GET({
+      locals: adminLocals()
+    } as Parameters<typeof readyzRoute.GET>[0]);
+    expect(readyzResponse.status).toBe(200);
+    expect(await readyzResponse.json()).toEqual({ status: 'ready' });
+
+    expect(
+      await drainRoute.POST({ locals: anonLocals() } as Parameters<typeof drainRoute.POST>[0])
+    ).toMatchObject({ status: 401 });
+    const drainResponse = await drainRoute.POST({
+      locals: adminLocals()
+    } as Parameters<typeof drainRoute.POST>[0]);
+    expect(drainResponse.status).toBe(200);
+    expect(await drainResponse.json()).toEqual({ drained: true });
+
+    expect(
+      await machineResizeRoute.POST({
+        locals: anonLocals(),
+        params: { name: 'vm-alpha' },
+        request: jsonRequest('http://local/api/smolvm/machines/vm-alpha/resize', {
+          storageGb: 20
+        })
+      } as Parameters<typeof machineResizeRoute.POST>[0])
+    ).toMatchObject({ status: 401 });
+
+    const resizeBadResponse = await machineResizeRoute.POST({
+      locals: adminLocals(),
+      params: { name: 'vm-alpha' },
+      request: jsonRequest('http://local/api/smolvm/machines/vm-alpha/resize', {
+        storageGb: -5
+      })
+    } as Parameters<typeof machineResizeRoute.POST>[0]);
+    expect(resizeBadResponse.status).toBe(400);
+    expect(await resizeBadResponse.json()).toMatchObject({ code: 'SMOLVM_RESIZE_INVALID' });
+
+    const resizeResponse = await machineResizeRoute.POST({
+      locals: adminLocals(),
+      params: { name: 'vm-alpha' },
+      request: jsonRequest('http://local/api/smolvm/machines/vm-alpha/resize', {
+        storageGb: 20
+      })
+    } as Parameters<typeof machineResizeRoute.POST>[0]);
+    expect(resizeResponse.status).toBe(200);
+    expect(await resizeResponse.json()).toEqual({
+      name: 'vm-alpha',
+      resized: { storageGb: 20 }
+    });
+
+    expect(
+      await machineForkRoute.POST({
+        locals: anonLocals(),
+        params: { name: 'vm-alpha' },
+        request: jsonRequest('http://local/api/smolvm/machines/vm-alpha/fork', { name: 'clone' })
+      } as Parameters<typeof machineForkRoute.POST>[0])
+    ).toMatchObject({ status: 401 });
+
+    const forkMissingName = await machineForkRoute.POST({
+      locals: adminLocals(),
+      params: { name: 'vm-alpha' },
+      request: jsonRequest('http://local/api/smolvm/machines/vm-alpha/fork', { name: '' })
+    } as Parameters<typeof machineForkRoute.POST>[0]);
+    expect(forkMissingName.status).toBe(400);
+    expect(await forkMissingName.json()).toMatchObject({ code: 'SMOLVM_FORK_NAME_REQUIRED' });
+
+    const forkResponse = await machineForkRoute.POST({
+      locals: adminLocals(),
+      params: { name: 'vm-alpha' },
+      request: jsonRequest('http://local/api/smolvm/machines/vm-alpha/fork', { name: 'clone' })
+    } as Parameters<typeof machineForkRoute.POST>[0]);
+    expect(forkResponse.status).toBe(200);
+    expect(await forkResponse.json()).toEqual({ name: 'clone', forkedFrom: 'vm-alpha' });
+    expect(
+      store.auditEvents.some((e) => (e.entry as { action?: string }).action === 'vm.fork')
+    ).toBe(true);
+
+    const exportResponse = await machineExportRoute.POST({
+      locals: adminLocals(),
+      params: { name: 'vm-alpha' },
+      request: jsonRequest('http://local/api/smolvm/machines/vm-alpha/export', { repo: 'mine' })
+    } as Parameters<typeof machineExportRoute.POST>[0]);
+    expect(exportResponse.status).toBe(200);
+    expect(await exportResponse.json()).toEqual({
+      digest: 'sha256:abc',
+      sizeBytes: 1234,
+      platform: 'linux/amd64',
+      manifest: null
+    });
+    expect(
+      store.auditEvents.some((e) => (e.entry as { action?: string }).action === 'vm.export')
+    ).toBe(true);
+
+    const runResponse = await machineRunRoute.POST({
+      locals: adminLocals(),
+      params: { name: 'vm-alpha' },
+      request: jsonRequest('http://local/api/smolvm/machines/vm-alpha/run', {
+        image: 'alpine',
+        command: ['echo', 'hi']
+      })
+    } as Parameters<typeof machineRunRoute.POST>[0]);
+    expect(runResponse.status).toBe(200);
+    expect(await runResponse.json()).toEqual({
+      exitCode: 0,
+      stdout: 'vm-alpha:echo hi',
+      stderr: ''
+    });
+
+    const filesPutMissingPath = await machineFilesRoute.PUT({
+      locals: adminLocals(),
+      params: { name: 'vm-alpha' },
+      request: jsonRequest(
+        'http://local/api/smolvm/machines/vm-alpha/files',
+        { content: 'x' },
+        'PUT'
+      ),
+      url: new URL('http://local/api/smolvm/machines/vm-alpha/files')
+    } as Parameters<typeof machineFilesRoute.PUT>[0]);
+    expect(filesPutMissingPath.status).toBe(400);
+    expect(await filesPutMissingPath.json()).toMatchObject({ code: 'SMOLVM_FILE_PATH_REQUIRED' });
+
+    const filesPutMissingContent = await machineFilesRoute.PUT({
+      locals: adminLocals(),
+      params: { name: 'vm-alpha' },
+      request: jsonRequest(
+        'http://local/api/smolvm/machines/vm-alpha/files?path=%2Fetc%2Fhosts',
+        {},
+        'PUT'
+      ),
+      url: new URL('http://local/api/smolvm/machines/vm-alpha/files?path=%2Fetc%2Fhosts')
+    } as Parameters<typeof machineFilesRoute.PUT>[0]);
+    expect(filesPutMissingContent.status).toBe(400);
+    expect(await filesPutMissingContent.json()).toMatchObject({
+      code: 'SMOLVM_FILE_CONTENT_REQUIRED'
+    });
+
+    const filesPutResponse = await machineFilesRoute.PUT({
+      locals: adminLocals(),
+      params: { name: 'vm-alpha' },
+      request: jsonRequest(
+        'http://local/api/smolvm/machines/vm-alpha/files?path=%2Fetc%2Fhosts',
+        { content: 'hello' },
+        'PUT'
+      ),
+      url: new URL('http://local/api/smolvm/machines/vm-alpha/files?path=%2Fetc%2Fhosts')
+    } as Parameters<typeof machineFilesRoute.PUT>[0]);
+    expect(filesPutResponse.status).toBe(200);
+    expect(await filesPutResponse.json()).toEqual({
+      name: 'vm-alpha',
+      path: '/etc/hosts',
+      uploaded: 5
+    });
+
+    const volumesBadSize = await volumesRoute.POST({
+      locals: adminLocals(),
+      request: jsonRequest('http://local/api/smolvm/volumes', { sizeGb: 0 })
+    } as Parameters<typeof volumesRoute.POST>[0]);
+    expect(volumesBadSize.status).toBe(400);
+    expect(await volumesBadSize.json()).toMatchObject({ code: 'SMOLVM_VOLUME_SIZE_INVALID' });
+
+    const volumesResponse = await volumesRoute.POST({
+      locals: adminLocals(),
+      request: jsonRequest('http://local/api/smolvm/volumes', { sizeGb: 10, backend: 'lvm' })
+    } as Parameters<typeof volumesRoute.POST>[0]);
+    expect(volumesResponse.status).toBe(200);
+    expect(await volumesResponse.json()).toEqual({
+      id: 'vol-1',
+      nodePath: '/var/smolvm/vol-1',
+      sizeGb: 10,
+      backend: 'lvm'
+    });
+
+    const volumeDeleteResponse = await volumeRoute.DELETE({
+      locals: adminLocals(),
+      params: { id: 'vol-1' }
+    } as Parameters<typeof volumeRoute.DELETE>[0]);
+    expect(volumeDeleteResponse.status).toBe(200);
+    expect(await volumeDeleteResponse.json()).toEqual({ id: 'vol-1', deleted: true });
+  });
+
+  test('machine delete forwards force/cascade query params and start forwards forkable/registryAuth', async () => {
+    const client = {
+      deleteMachine: async (
+        name: string,
+        opts?: { force?: boolean; cascade?: boolean }
+      ): Promise<Record<string, unknown>> => ({
+        name,
+        force: opts?.force === true,
+        cascade: opts?.cascade === true
+      }),
+      startMachine: async (
+        name: string,
+        opts?: { forkable?: boolean; registryAuth?: { username: string; password: string } }
+      ): Promise<Record<string, unknown>> => ({
+        name,
+        forkable: opts?.forkable === true,
+        registryAuth: opts?.registryAuth
+      })
+    };
+    installSmolVmClientMock(client);
+    installManagerStoreMock();
+
+    const deleteForced = await machineRoute.DELETE({
+      locals: adminLocals(),
+      params: { name: 'vm-alpha' },
+      request: jsonRequest(
+        'http://local/api/smolvm/machines/vm-alpha?force=true&cascade=true',
+        undefined,
+        'DELETE'
+      )
+    } as Parameters<typeof machineRoute.DELETE>[0]);
+    expect(deleteForced.status).toBe(200);
+    expect(await deleteForced.json()).toEqual({
+      name: 'vm-alpha',
+      force: true,
+      cascade: true
+    });
+
+    const deletePlain = await machineRoute.DELETE({
+      locals: adminLocals(),
+      params: { name: 'vm-alpha' },
+      request: jsonRequest('http://local/api/smolvm/machines/vm-alpha', undefined, 'DELETE')
+    } as Parameters<typeof machineRoute.DELETE>[0]);
+    expect(await deletePlain.json()).toEqual({ name: 'vm-alpha', force: false, cascade: false });
+
+    const startWithOpts = await machineStartRoute.POST({
+      locals: adminLocals(),
+      params: { name: 'vm-alpha' },
+      request: jsonRequest('http://local/api/smolvm/machines/vm-alpha/start', {
+        forkable: true,
+        registryAuth: { username: 'u', password: 'p' }
+      })
+    } as Parameters<typeof machineStartRoute.POST>[0]);
+    expect(startWithOpts.status).toBe(200);
+    expect(await startWithOpts.json()).toEqual({
+      name: 'vm-alpha',
+      forkable: true,
+      registryAuth: { username: 'u', password: 'p' }
+    });
+
+    const startPlain = await machineStartRoute.POST({
+      locals: adminLocals(),
+      params: { name: 'vm-alpha' },
+      request: jsonRequest('http://local/api/smolvm/machines/vm-alpha/start', undefined)
+    } as Parameters<typeof machineStartRoute.POST>[0]);
+    expect(await startPlain.json()).toEqual({
+      name: 'vm-alpha',
+      forkable: false,
+      registryAuth: undefined
     });
   });
 

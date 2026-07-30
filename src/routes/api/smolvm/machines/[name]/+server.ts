@@ -17,8 +17,11 @@ export const DELETE = async (
 ): Promise<Response> => {
   const { locals, params, request, getClientAddress } = event;
   const admin = locals.admin;
+  const query = new URL(request.url).searchParams;
+  const force = query.get('force') === 'true';
+  const cascade = query.get('cascade') === 'true';
   return requireSmolVmAdmin({ locals, client: deps?.client }, async (client) => {
-    const result = await client.deleteMachine(params.name);
+    const result = await client.deleteMachine(params.name, { force, cascade });
     if (admin) {
       await auditVmAction({
         action: 'vm.delete',
