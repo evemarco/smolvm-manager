@@ -2,6 +2,10 @@ export type SmolVmMachine = {
   name: string;
   status?: string;
   state?: string;
+  cpuMillis?: number;
+  rssMb?: number;
+  diskUsedMb?: number;
+  egressBytes?: number;
   [key: string]: unknown;
 };
 
@@ -11,7 +15,8 @@ export type ToastVariant = 'success' | 'error' | 'info';
 
 export type ConfirmVariant = 'danger' | 'warning';
 
-export type TabId = 'overview' | 'config' | 'logs' | 'terminal' | 'metrics' | 'guest-logs';
+export type TabId =
+  'overview' | 'config' | 'logs' | 'terminal' | 'metrics' | 'guest-logs' | 'files';
 
 export type VmStatus = 'running' | 'stopped' | 'starting' | 'stopping' | 'error' | 'unknown';
 
@@ -47,6 +52,7 @@ export type VmConfig = {
   gpuVram?: number;
   allowHosts?: string[];
   allowCidrs?: string[];
+  dns?: string;
   ports?: VmPortMapping[];
   volumes?: VmVolumeMount[];
   env?: Record<string, string>;
@@ -55,6 +61,24 @@ export type VmConfig = {
   sshAgent?: boolean;
   entrypoint?: string;
   cmd?: string;
+};
+
+export type SmolVmReadyz = {
+  status: string;
+  [key: string]: unknown;
+};
+
+export type SmolVmExportResult = {
+  digest: string;
+  sizeBytes: number;
+  platform: string;
+};
+
+export type SmolVmVolumeInfo = {
+  id: string;
+  nodePath: string;
+  sizeGb?: number;
+  [key: string]: unknown;
 };
 
 export type ConfigValidationError = {
