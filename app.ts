@@ -7,19 +7,24 @@ const User = entity('User', {
   isAdmin: field.bool()
 });
 
-const AuditEvent = entity('AuditEvent', {
-  eventType: field.string(),
-  actorUserId: field.string().optional(),
-  action: field.string().optional(),
-  details: field.string().optional(),
-  ipAddress: field.string().optional(),
-  createdAt: field.datetime()
-});
+const AuditEvent = entity(
+  'AuditEvent',
+  {
+    eventType: field.string(),
+    actorUserId: field.string().optional(),
+    action: field.string().optional(),
+    details: field.string().optional(),
+    ipAddress: field.string().optional(),
+    createdAt: field.datetime().defaultNow()
+  },
+  // Append-only audit log, read via REST queries only — never replicated.
+  { sync: false }
+);
 
 const ManagerSetting = entity('ManagerSetting', {
   key: field.string().unique(),
   valueJson: field.string(),
-  updatedAt: field.datetime()
+  updatedAt: field.datetime().defaultNow()
 });
 
 const SavedVmConfig = entity('SavedVmConfig', {
@@ -27,32 +32,44 @@ const SavedVmConfig = entity('SavedVmConfig', {
   machineName: field.string(),
   configJson: field.string(),
   toml: field.string(),
-  createdAt: field.datetime(),
-  updatedAt: field.datetime()
+  createdAt: field.datetime().defaultNow(),
+  updatedAt: field.datetime().defaultNow()
 });
 
-const TomlSnapshot = entity('TomlSnapshot', {
-  machineName: field.string(),
-  toml: field.string(),
-  reason: field.string().optional(),
-  createdAt: field.datetime()
-});
+const TomlSnapshot = entity(
+  'TomlSnapshot',
+  {
+    machineName: field.string(),
+    toml: field.string(),
+    reason: field.string().optional(),
+    createdAt: field.datetime().defaultNow()
+  },
+  // Snapshot history, read via REST queries only — never replicated.
+  { sync: false }
+);
 
-const MetricsSample = entity('MetricsSample', {
-  machineName: field.string().optional(),
-  cpu: field.float(),
-  memoryMb: field.float(),
-  diskGb: field.float(),
-  networkRxBytes: field.int(),
-  networkTxBytes: field.int(),
-  sampledAt: field.datetime()
-});
+const MetricsSample = entity(
+  'MetricsSample',
+  {
+    machineName: field.string().optional(),
+    cpu: field.float(),
+    memoryMb: field.float(),
+    diskGb: field.float(),
+    networkRxBytes: field.int(),
+    networkTxBytes: field.int(),
+    sampledAt: field.datetime().defaultNow()
+  },
+  // Live-replicated for the dashboard but bounded server-side: each client
+  // replica holds at most the 100 newest samples (older history is served
+  // by the listMetricsSamples query through the REST history route).
+  { sync: { limit: 100 } }
+);
 
 const UiPreference = entity('UiPreference', {
   userId: field.string(),
   key: field.string(),
   valueJson: field.string(),
-  updatedAt: field.datetime()
+  updatedAt: field.datetime().defaultNow()
 });
 
 const managerQueries = [

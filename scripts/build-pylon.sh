@@ -8,14 +8,14 @@ set -euo pipefail
 # Use this when the prebuilt binary fails due to glibc incompatibility.
 #
 # Default tag matches the Pylon version pinned in package.json.
-# Override: TAG=v0.3.333 ./scripts/build-pylon.sh
+# Override: TAG=v0.3.355 ./scripts/build-pylon.sh
 #           TAG=latest    -> newest release tag from the remote
 #           TAG=""        -> latest commit on the default branch
 # ─────────────────────────────────────────────────────────────
 
 REPO_DIR="${REPO_DIR:-/tmp/pylon}"
 REPO_URL="${REPO_URL:-https://github.com/pylonsync/pylon.git}"
-TAG="${TAG:-v0.3.333}"
+TAG="${TAG:-v0.3.355}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 
 # Colours
