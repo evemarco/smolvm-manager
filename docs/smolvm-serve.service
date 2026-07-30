@@ -25,6 +25,20 @@ ExecStart=/root/.smolvm/smolvm serve start
 # If smolvm serve start accepts a --listen flag, you can bind to a specific address:
 # ExecStart=/root/.smolvm/smolvm serve start --listen 0.0.0.0:8080
 
+# Published VM TCP ports (the `ports` field on a machine) bind to IPv4
+# 127.0.0.1 by default, so they are reachable only from the host itself.
+# SMOLVM_PUBLISH_ADDR overrides that bind address globally: it applies to
+# every published port of every VM this process handles, not per VM or per
+# port. An unset or malformed value falls back to 127.0.0.1; a valid address
+# must already be assigned to an active host interface or the listener cannot
+# bind. This is independent from the Unix API socket above and from the
+# manager's own bind address. Binding to a LAN address such as 172.21.0.1
+# exposes the listeners through that interface's routes and firewall rules,
+# not to the public internet.
+# See docs/DEPLOYMENT.md ("Published Port Bind Address") for details and the
+# drop-in override recommended for production hosts.
+# Environment=SMOLVM_PUBLISH_ADDR=172.21.0.1
+
 # Unix socket clients connect with write permission; umask 022 would create
 # /tmp/smolvm.sock as srwxr-xr-x and refuse every non-root client (the manager
 # runs as its own user). UMask=0000 keeps the socket world-connectable.

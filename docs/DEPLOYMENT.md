@@ -113,6 +113,45 @@ Do not install raw `libkrun.so` files directly from the SmolVM source tree. The 
 
 Rebuild (or install) the new SmolVM version, then restart only `smolvm-serve.service`. The manager opens a fresh Unix-socket connection per request and needs neither a rebuild nor a restart; browser SSE/WebSocket streams reconnect on their own. The manager is verified against SmolVM 1.6.13, 1.7.0, and 1.7.1 — see the "SmolVM Compatibility" section of the [README](../README.md) for the version-sensitive behaviors (strict boolean `follow`, per-machine guest DNS via the `smolvm-api-dns.patch` build, and 1.7.0's stricter create/update validation).
 
+## Published Port Bind Address
+
+Machines created with published TCP `ports` get host-side listeners from the SmolVM process. Since SmolVM 1.7.1 these listeners bind to IPv4 `127.0.0.1` by default, so a published port is reachable only from the host itself. The `SMOLVM_PUBLISH_ADDR` environment variable overrides that bind address.
+
+Key facts:
+
+- The scope is global to the SmolVM process: one value applies to every published port of every VM it manages. It cannot be configured per VM or per port.
+- An unset or malformed value falls back to `127.0.0.1`. A valid IPv4 address must already exist on an active host interface or the published-port listener cannot bind. Check candidates with `ip -4 addr show`.
+- It is independent from the SmolVM API socket (`/tmp/smolvm.sock`, the channel the manager uses to control SmolVM) and from the manager's own bind address (`MANAGER_HOST`). Neither is affected by this setting.
+- Published ports reach guests over virtio-net. TSI has no inbound path, so this setting does not affect it.
+- Setting it to a LAN address such as `172.21.0.1` makes the listeners reachable through that interface's host routes and firewall rules. It does not automatically make them publicly reachable, and no `0.0.0.0` bind or public exposure is required.
+
+For host-specific production config, prefer a systemd drop-in over editing the shipped unit, so repository updates to `docs/smolvm-serve.service` stay clean:
+
+```sh
+sudo mkdir -p /etc/systemd/system/smolvm-serve.service.d
+sudo tee /etc/systemd/system/smolvm-serve.service.d/publish-addr.conf <<'EOF'
+[Service]
+Environment=SMOLVM_PUBLISH_ADDR=172.21.0.1
+EOF
+```
+
+Then verify the address exists on the host, reload, and restart only the SmolVM service (the manager talks to SmolVM over the Unix socket and needs no restart):
+
+```sh
+ip -4 addr show
+sudo systemctl daemon-reload
+sudo systemctl restart smolvm-serve
+```
+
+Confirm the effective environment and the listeners:
+
+```sh
+systemctl show smolvm-serve -p Environment
+sudo ss -tlnp
+```
+
+Published ports should now appear bound to the configured address, or to `127.0.0.1` when the variable is unset.
+
 ## Logs
 
 View manager logs via journald:
