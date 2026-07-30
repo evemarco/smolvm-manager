@@ -8,7 +8,11 @@
     Loader2,
     Server,
     Copy,
-    Pencil
+    Pencil,
+    Maximize2,
+    GitBranch,
+    Package,
+    Upload
   } from '@lucide/svelte';
   import { untrack } from 'svelte';
   import StatusBadge from '$lib/components/StatusBadge.svelte';
@@ -16,23 +20,25 @@
   import VmTerminal from './VmTerminal.svelte';
   import VmMetrics from './VmMetrics.svelte';
   import VmGuestLogs from './VmGuestLogs.svelte';
+  import VmActionDialogs from './VmActionDialogs.svelte';
   import type { SmolVmMachine, TabId } from '$lib/types';
 
   let {
     machine,
+    csrfToken = '',
     onBack,
-    onStart,
     onStop,
     onRestart,
     onDelete,
     onEdit,
     onCopy,
     actionLoading = {},
-    initialTab = 'overview'
+    initialTab = 'overview',
+    onChanged
   }: {
     machine: SmolVmMachine;
+    csrfToken?: string;
     onBack: () => void;
-    onStart: (m: SmolVmMachine) => void;
     onStop: (m: SmolVmMachine) => void;
     onRestart: (m: SmolVmMachine) => void;
     onDelete: (m: SmolVmMachine) => void;
@@ -40,17 +46,22 @@
     onCopy?: (m: SmolVmMachine) => void;
     actionLoading?: Record<string, boolean>;
     initialTab?: TabId;
+    onChanged?: () => void;
   } = $props();
 
   const machineStatus = $derived(machine.status ?? machine.state ?? 'unknown');
   const isRunning = $derived(machineStatus === 'running');
+  const isStopped = $derived(machineStatus === 'stopped');
 
   // initialTab only seeds the starting tab; afterwards the tab is user-controlled
   let activeTab: TabId = $state(untrack(() => initialTab));
 
+  let actionDialogs: VmActionDialogs;
+
   const tabs: { id: TabId; label: string; disabled?: boolean }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'config', label: 'Config' },
+    { id: 'files', label: 'Files' },
     { id: 'logs', label: 'Logs' },
     { id: 'guest-logs', label: 'Guest logs' },
     { id: 'terminal', label: 'Terminal' },
@@ -80,7 +91,7 @@
       {#if !isRunning}
         <button
           class="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
-          onclick={() => onStart(machine)}
+          onclick={() => actionDialogs.openStart(machine)}
           disabled={actionLoading[`start-${machine.name}`]}
         >
           {#if actionLoading[`start-${machine.name}`]}
@@ -118,6 +129,43 @@
       >
         <Copy size={14} />
         Copy
+      </button>
+      <button
+        class="flex items-center gap-1.5 rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white disabled:opacity-50"
+        onclick={() => actionDialogs.openResize(machine)}
+        disabled={!isStopped}
+        title={isStopped ? 'Resize storage/overlay' : 'Stop the machine first'}
+      >
+        <Maximize2 size={14} />
+        Resize
+      </button>
+      <button
+        class="flex items-center gap-1.5 rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white disabled:opacity-50"
+        onclick={() => actionDialogs.openFork(machine)}
+        title="Fork into a clone"
+      >
+        <GitBranch size={14} />
+        Fork
+      </button>
+      <button
+        class="flex items-center gap-1.5 rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white disabled:opacity-50"
+        onclick={() => actionDialogs.openExport(machine)}
+        disabled={!isStopped}
+        title={isStopped ? 'Export as OCI image' : 'Stop the machine first'}
+      >
+        <Package size={14} />
+        Export
+      </button>
+      <button
+        class="flex items-center gap-1.5 rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white disabled:opacity-50"
+        onclick={() => {
+          activeTab = 'files';
+          actionDialogs.openUpload(machine);
+        }}
+        title="Upload a file into the guest"
+      >
+        <Upload size={14} />
+        Upload
       </button>
       <button
         class="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-300 transition hover:bg-amber-500/20 disabled:opacity-50"
@@ -199,16 +247,32 @@
       </div>
     {:else if activeTab === 'logs'}
       <VmLogs machineName={machine.name} />
+    {:else if activeTab === 'files'}
+      <div class="flex flex-col gap-4">
+        <p class="text-sm text-slate-400">
+          Upload files into <span class="font-mono text-cyan-300">{machine.name}</span>'s guest
+          filesystem.
+        </p>
+        <button
+          class="flex items-center gap-2 self-start rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-500"
+          onclick={() => actionDialogs.openUpload(machine)}
+        >
+          <Upload size={14} />
+          Upload file
+        </button>
+      </div>
     {:else if activeTab === 'guest-logs'}
       <VmGuestLogs machineName={machine.name} />
     {:else if activeTab === 'terminal'}
       <VmTerminal machineName={machine.name} />
     {:else if activeTab === 'metrics'}
-      <VmMetrics machineName={machine.name} />
+      <VmMetrics machineName={machine.name} {machine} />
     {:else}
       <div class="flex flex-col items-center justify-center gap-3 py-12">
         <p class="text-sm text-slate-400">{placeholderMessages[activeTab] ?? 'Coming soon.'}</p>
       </div>
     {/if}
   </div>
+
+  <VmActionDialogs bind:this={actionDialogs} {csrfToken} onChanged={() => onChanged?.()} />
 </div>

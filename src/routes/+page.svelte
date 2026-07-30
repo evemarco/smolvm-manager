@@ -10,7 +10,8 @@
     Cpu,
     MemoryStick,
     HardDrive,
-    Bookmark
+    Bookmark,
+    Trash2
   } from '@lucide/svelte';
   import { appName } from '$lib/site';
   import { toasts } from '$lib/toast';
@@ -36,6 +37,7 @@
   import ImagePicker from '$lib/components/ImagePicker.svelte';
   import BrowseImagesButton from '$lib/components/BrowseImagesButton.svelte';
   import GlobalLogsButton from '$lib/components/GlobalLogsButton.svelte';
+  import VolumesPanel from '$lib/components/VolumesPanel.svelte';
   import GlobalLogs from './GlobalLogs.svelte';
   import VmConfigForm from '$lib/components/VmConfigForm.svelte';
   import VmCard from './VmCard.svelte';
@@ -75,6 +77,14 @@
   let actionLoading: Record<string, boolean> = $state({});
   let pickerOpen = $state(false);
   let globalLogsOpen = $state(false);
+  let volumesOpen = $state(false);
+
+  // Delete dialog state (force/cascade options)
+  let deleteDialogOpen = $state(false);
+  let deleteTarget: SmolVmMachine | null = $state(null);
+  let deleteForce = $state(false);
+  let deleteCascade = $state(false);
+  let deleteLoading = $state(false);
 
   // Capacity summary
   let capacity: CapacityData | null = $state(null);
@@ -203,12 +213,10 @@
   }
 
   function confirmDelete(machine: SmolVmMachine) {
-    confirmTitle = 'Delete Machine';
-    confirmMessage = `Are you sure you want to delete "${machine.name}"? This action cannot be undone.`;
-    confirmLabel = 'Delete';
-    confirmVariant = 'danger';
-    confirmAction = () => performDelete(machine.name);
-    confirmOpen = true;
+    deleteTarget = machine;
+    deleteForce = false;
+    deleteCascade = false;
+    deleteDialogOpen = true;
   }
 
   function confirmRestart(machine: SmolVmMachine) {
@@ -223,13 +231,19 @@
     confirmOpen = true;
   }
 
-  async function performDelete(name: string) {
-    confirmOpen = false;
+  async function performDelete(name: string, options: { force: boolean; cascade: boolean }) {
+    deleteDialogOpen = false;
+    deleteLoading = true;
     const key = `delete-${name}`;
     actionLoading = { ...actionLoading, [key]: true };
 
     try {
-      const response = await fetch(`/api/smolvm/machines/${encodeURIComponent(name)}`, {
+      const parts: string[] = [];
+      if (options.force) parts.push('force=true');
+      if (options.cascade) parts.push('cascade=true');
+      const query = parts.join('&');
+      const url = `/api/smolvm/machines/${encodeURIComponent(name)}${query ? `?${query}` : ''}`;
+      const response = await fetch(url, {
         method: 'DELETE',
         headers: { 'x-csrf-token': csrfToken }
       });
@@ -243,6 +257,7 @@
     } catch (err) {
       toasts.push(err instanceof Error ? err.message : `Delete failed for ${name}`, 'error');
     } finally {
+      deleteLoading = false;
       actionLoading = { ...actionLoading, [key]: false };
     }
   }
@@ -310,6 +325,7 @@
     if (Array.isArray(machine.init)) {
       config.init = machine.init.map(String);
     }
+    if (typeof machine.dns === 'string') config.dns = machine.dns;
     vmFormInitialConfig = config;
     vmFormOpen = true;
   }
@@ -350,6 +366,7 @@
     if (typeof machine.env === 'object' && machine.env !== null && !Array.isArray(machine.env)) {
       config.env = { ...(machine.env as Record<string, string>) };
     }
+    if (typeof machine.dns === 'string') config.dns = machine.dns;
     vmFormInitialConfig = config;
     vmFormOpen = true;
   }
@@ -500,6 +517,92 @@
   onCancel={() => (confirmOpen = false)}
 />
 
+{#if deleteDialogOpen && deleteTarget}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+    onclick={(e) => {
+      if (e.target === e.currentTarget && !deleteLoading) deleteDialogOpen = false;
+    }}
+    onkeydown={(e) => {
+      if (e.key === 'Escape' && !deleteLoading) deleteDialogOpen = false;
+    }}
+  >
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div
+      class="w-full max-w-md rounded-2xl border border-red-500/20 bg-slate-900 p-6 shadow-2xl"
+      onclick={(e) => e.stopPropagation()}
+    >
+      <div class="flex items-start gap-4">
+        <div
+          class="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10"
+        >
+          <Trash2 size={20} class="text-red-400" />
+        </div>
+        <div class="flex-1 min-w-0">
+          <h2 class="text-lg font-semibold text-white">Delete machine</h2>
+          <p class="mt-2 text-sm leading-relaxed text-slate-300">
+            Delete <span class="font-mono text-red-300">{deleteTarget.name}</span>. This action
+            cannot be undone.
+          </p>
+          <div class="mt-4 flex flex-col gap-2">
+            <label
+              class="flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5"
+            >
+              <input
+                type="checkbox"
+                bind:checked={deleteForce}
+                class="mt-0.5 rounded border-slate-600 bg-slate-950 text-red-500 focus:ring-red-400"
+              />
+              <div class="flex-1">
+                <p class="text-sm text-white">Force</p>
+                <p class="text-xs text-slate-400">
+                  Kill the machine if it refuses a graceful shutdown.
+                </p>
+              </div>
+            </label>
+            <label
+              class="flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5"
+            >
+              <input
+                type="checkbox"
+                bind:checked={deleteCascade}
+                class="mt-0.5 rounded border-slate-600 bg-slate-950 text-red-500 focus:ring-red-400"
+              />
+              <div class="flex-1">
+                <p class="text-sm text-white">Cascade</p>
+                <p class="text-xs text-slate-400">
+                  Also delete any clones forked from this machine.
+                </p>
+              </div>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="mt-6 flex justify-end gap-3">
+        <button
+          class="rounded-lg border border-white/10 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white"
+          onclick={() => (deleteDialogOpen = false)}
+          disabled={deleteLoading}
+        >
+          Cancel
+        </button>
+        <button
+          class="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          onclick={() =>
+            performDelete(deleteTarget!.name, { force: deleteForce, cascade: deleteCascade })}
+          disabled={deleteLoading}
+        >
+          {#if deleteLoading}
+            <Loader2 size={14} class="animate-spin" />
+          {/if}
+          Delete
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 {#if pickerOpen}
   <ImagePicker
     onSelect={(selection: ImagePickerSelection) => {
@@ -571,6 +674,14 @@
       </button>
       <BrowseImagesButton onClick={() => (pickerOpen = true)} />
       <GlobalLogsButton onClick={toggleGlobalLogs} />
+      <button
+        class="flex items-center gap-2 rounded-lg border border-white/10 bg-slate-800/80 px-3 py-2 text-sm text-slate-300 transition hover:bg-slate-700 hover:text-white"
+        onclick={() => (volumesOpen = !volumesOpen)}
+        aria-expanded={volumesOpen}
+      >
+        <HardDrive size={16} />
+        Volumes
+      </button>
       <button
         class="flex items-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed"
         onclick={openCreateVm}
@@ -683,6 +794,10 @@
     <GlobalLogs />
   {/if}
 
+  {#if volumesOpen}
+    <VolumesPanel {csrfToken} />
+  {/if}
+
   <!-- Content -->
   {#if loading && machines.length === 0}
     <div class="flex flex-col items-center justify-center gap-3 py-20">
@@ -735,14 +850,15 @@
   {:else if selectedMachine}
     <VmDetail
       machine={selectedMachine}
+      {csrfToken}
       initialTab={detailInitialTab}
       onBack={() => (selectedMachine = null)}
-      onStart={(m) => lifecycleAction(m.name, 'start')}
       onStop={(m) => lifecycleAction(m.name, 'stop')}
       onRestart={(m) => confirmRestart(m)}
       onDelete={(m) => confirmDelete(m)}
       onEdit={(m) => openEditVm(m)}
       onCopy={(m) => openCopyVm(m)}
+      onChanged={fetchMachines}
       {actionLoading}
     />
   {:else if viewMode === 'cards'}
