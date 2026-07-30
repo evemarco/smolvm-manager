@@ -18,7 +18,10 @@ RestartSec=5
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/smolvm-manager
+# The SmolVM CLI update path writes the same SQLite store used by
+# smolvm-serve.service. Keep this path narrow and grant filesystem permissions
+# to the smolvm-manager user/group when SMOLVM_UPDATE_HOME=/var/lib/smolvm.
+ReadWritePaths=/var/lib/smolvm-manager /var/lib/smolvm/.local/share/smolvm/server
 
 [Install]
 WantedBy=multi-user.target

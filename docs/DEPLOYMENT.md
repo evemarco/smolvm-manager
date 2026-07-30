@@ -31,7 +31,7 @@ This file documents a complete production deployment layout for [SmolVM Manager]
 
 1. Clone the repository to `/var/lib/smolvm-manager`.
 2. Install Pylon and SmolVM, or build them locally by following [`SOURCE_BUILDS.md`](SOURCE_BUILDS.md) when the published executables are incompatible with the host.
-3. Install the executables where the sandbox can reach them. The unit sets `ProtectHome=true`, so anything under `/root` or `/home` is invisible to the service — copy `bun` and `pylon` as real files (not symlinks into `/root`) to `/usr/local/bin/`.
+3. Install the executables where the sandbox can reach them. The unit sets `ProtectHome=true`, so anything under `/root` or `/home` is invisible to the service — copy `bun` and `pylon` as real files (not symlinks into `/root`) to `/usr/local/bin/`, and install the full SmolVM distribution somewhere outside home directories such as `/opt/smolvm`.
 4. Confirm that `pylon --version` works and that SmolVM serves `/tmp/smolvm.sock`. The provided SmolVM unit copies the host resolver into both the installed and cached agent rootfs before every start; this prevents TSI image pulls from using a stale hard-coded public DNS server. Guest DNS itself is set per machine at create time: the manager builds SmolVM with `scripts/smolvm-api-dns.patch` (adds `dns` to the create API) and sends Hetzner's resolver `185.12.64.1` by default (`SMOLVM_GUEST_DNS` overrides, `none` opts out), so no host-level DNAT redirect is needed. Machines created before this change still resolve through the compiled-in `1.1.1.1` — recreate them to migrate.
 5. Run `bun install` and `bun run build`.
 6. Create the `smolvm-manager` user and group:
@@ -42,7 +42,7 @@ This file documents a complete production deployment layout for [SmolVM Manager]
    sudo chown -R smolvm-manager:smolvm-manager /var/lib/smolvm-manager
    ```
 
-7. Copy `docs/smolvm-manager.env` to `/etc/smolvm-manager/env` and edit values. With Pylon 0.3.333 or later you must set `PYLON_ADMIN_TOKEN` (generate one with `openssl rand -hex 32`): Pylon default-denies anonymous entity access and the manager presents this token on its server-side calls.
+7. Copy `docs/smolvm-manager.env` to `/etc/smolvm-manager/env` and edit values. With Pylon 0.3.333 or later you must set `PYLON_ADMIN_TOKEN` (generate one with `openssl rand -hex 32`): Pylon default-denies anonymous entity access and the manager presents this token on its server-side calls. Set `SMOLVM_COMMAND`, `SMOLVM_UPDATE_HOME`, and `SMOLVM_UPDATE_CWD` to match the SmolVM distribution and state directory used by `smolvm-serve.service` if you want live config updates such as adding or removing published ports.
 8. Copy `docs/smolvm-manager.service` and `docs/smolvm-serve.service` to `/etc/systemd/system/`. The SmolVM unit carries `UMask=0000` so the manager's unprivileged user may connect to `/tmp/smolvm.sock` (a `022` umask creates it `srwxr-xr-x`, which rejects non-root clients).
 9. Enable and start the service: `sudo systemctl enable --now smolvm-manager`.
 10. Optionally configure a reverse proxy using the examples in `docs/reverse-proxy/`. Whichever way the manager is exposed, keep Pylon's HTTP port (from `PYLON_URL`, default `4321`) reachable from browsers: the dashboard's live sync (`/api/sync/ws`, `/api/fn/*`) connects to it directly, authenticated by the host-scoped `pylon_session` cookie.
@@ -53,7 +53,15 @@ The manager unit runs as the dedicated `smolvm-manager` user with `ProtectSystem
 
 - `/root` and `/home` do not exist for the process. This is why `bun` and `pylon` must live in `/usr/local/bin` rather than under `/root`.
 - The whole filesystem is read-only except `/var/lib/smolvm-manager`, which covers the app data, Pylon databases, and Vite's temporary config bundle.
-- Files owned by root elsewhere on the host do not need to change: the service is self-contained in its own directory and only talks to SmolVM through `/tmp/smolvm.sock`.
+- Most lifecycle operations only talk to SmolVM through `/tmp/smolvm.sock`. Live config updates are different: SmolVM 1.7 exposes machine update support through the CLI, so the manager runs `SMOLVM_COMMAND machine update` with `HOME=$SMOLVM_UPDATE_HOME` and `cwd=$SMOLVM_UPDATE_CWD`.
+- The SmolVM update CLI must be able to read its distribution files and write SmolVM's server store. With the example layout, grant the manager user access only to the server store directory instead of broadening the whole sandbox:
+
+  ```sh
+  sudo setfacl -m u:smolvm-manager:rwx /var/lib/smolvm/.local/share/smolvm/server
+  sudo setfacl -m u:smolvm-manager:rw /var/lib/smolvm/.local/share/smolvm/server/smolvm.db
+  ```
+
+  If the SmolVM store uses SQLite sidecar files (`smolvm.db-wal` or `smolvm.db-shm`), grant the same user write access to those files too. The shipped unit also adds `/var/lib/smolvm/.local/share/smolvm/server` to `ReadWritePaths`; keep that path as narrow as possible.
 
 Running as `root` instead is possible: set `User=root` and `Group=root` in `smolvm-manager.service`, keep the working directory anywhere you like, and drop `ProtectHome=true` if the app must read `/root`. You lose the sandbox — a manager compromise is then a root compromise — so prefer the dedicated user on any host that matters.
 
