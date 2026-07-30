@@ -1,0 +1,116 @@
+diff --git a/src/api/handlers/machines.rs b/src/api/handlers/machines.rs
+index 82810cf..34b03c4 100644
+--- a/src/api/handlers/machines.rs
++++ b/src/api/handlers/machines.rs
+@@ -729,6 +729,7 @@ pub async fn create_machine(
+         allowed_cidrs: normalized_cidrs,
+         allowed_hosts: req.allowed_hosts.clone(),
+         network_backend: req.network_backend,
++        dns: req.dns,
+     };
+ 
+     // Validate request-body secret refs before persisting. Untrusted
+@@ -2370,6 +2371,7 @@ mod tests {
+             allowed_cidrs: None,
+             allowed_hosts: None,
+             network_backend: None,
++            dns: None,
+             restart: None,
+             image: None,
+             from: None,
+diff --git a/src/api/state.rs b/src/api/state.rs
+index 9b7cbd8..2c5dfcc 100644
+--- a/src/api/state.rs
++++ b/src/api/state.rs
+@@ -350,6 +350,7 @@ impl ApiState {
+                 allowed_cidrs: record.allowed_cidrs.clone(),
+                 allowed_hosts: record.dns_filter_hosts.clone(),
+                 network_backend: record.network_backend,
++                dns: record.dns,
+             };
+ 
+             // Create AgentManager and try to reconnect
+@@ -821,6 +822,7 @@ impl ApiState {
+         record.allowed_cidrs = reg.resources.allowed_cidrs.clone();
+         record.dns_filter_hosts = reg.resources.allowed_hosts.clone();
+         record.network_backend = reg.resources.network_backend;
++        record.dns = reg.resources.dns;
+         // GPU flags (previously dropped here, so API-created machines
+         // silently lost CUDA/GPU on restart).
+         record.gpu = reg.resources.gpu;
+@@ -1401,9 +1403,9 @@ pub fn resource_spec_to_vm_resources(spec: &ResourceSpec, network: bool) -> VmRe
+         storage_gib: spec.storage_gb,
+         overlay_gib: spec.overlay_gb,
+         allowed_cidrs: spec.allowed_cidrs.clone(),
+-        // Custom DNS is a local-CLI feature for now; the cloud ResourceSpec
+-        // does not expose it, so API-launched VMs inherit the backend default.
+-        dns: None,
++        // ResourceSpec carries the per-machine custom DNS override (API parity
++        // with the CLI `--dns`); None keeps the backend default.
++        dns: spec.dns,
+     }
+ }
+ 
+@@ -1422,6 +1424,7 @@ pub fn vm_resources_to_spec(res: VmResources) -> ResourceSpec {
+         // back from the source record (see the MachineEntry reload path).
+         allowed_hosts: None,
+         network_backend: res.network_backend,
++        dns: res.dns,
+     }
+ }
+ 
+@@ -1541,6 +1544,7 @@ mod tests {
+             allowed_cidrs: None,
+             allowed_hosts: None,
+             network_backend: None,
++            dns: None,
+         };
+         let res = resource_spec_to_vm_resources(&spec, false);
+         assert_eq!(res.cpus, DEFAULT_MICROVM_CPU_COUNT);
+@@ -1606,6 +1610,7 @@ mod tests {
+                     allowed_cidrs: None,
+                     allowed_hosts: None,
+                     network_backend: None,
++                    dns: None,
+                 },
+                 restart: RestartConfig::default(),
+                 network: false,
+@@ -1669,6 +1674,7 @@ mod tests {
+                     allowed_cidrs: None,
+                     allowed_hosts: None,
+                     network_backend: None,
++                    dns: None,
+                 },
+                 restart: RestartConfig::default(),
+                 network: false,
+diff --git a/src/api/types.rs b/src/api/types.rs
+index 95a47f4..a950c4a 100644
+--- a/src/api/types.rs
++++ b/src/api/types.rs
+@@ -117,6 +117,12 @@ pub struct ResourceSpec {
+     /// (required for published `ports`). Omit for the default (TSI).
+     #[serde(default)]
+     pub network_backend: Option<crate::network::NetworkBackend>,
++    /// Custom guest DNS resolver (single IPv4). Overrides the backend default
++    /// for this machine: written into the guest resolv.conf under TSI, or used
++    /// as the gateway upstream under virtio-net.
++    #[serde(default)]
++    #[schema(value_type = String)]
++    pub dns: Option<std::net::Ipv4Addr>,
+ }
+ 
+ // ============================================================================
+@@ -535,6 +541,13 @@ pub struct CreateMachineRequest {
+     /// Published `ports` require `virtio-net` (TSI has no inbound path).
+     #[serde(default)]
+     pub network_backend: Option<crate::network::NetworkBackend>,
++    /// Custom guest DNS resolver (single IPv4), same semantics as the CLI
++    /// `machine create --dns`: written into the guest resolv.conf under TSI,
++    /// or used as the gateway upstream under virtio-net. Omit for the backend
++    /// default.
++    #[serde(default)]
++    #[schema(value_type = String)]
++    pub dns: Option<std::net::Ipv4Addr>,
+     /// Restart policy configuration.
+     #[serde(default)]
+     pub restart: Option<RestartSpec>,

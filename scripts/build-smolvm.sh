@@ -165,6 +165,11 @@ apply_local_patches() {
         if git -C "$BUILD_DIR" apply --check "$patch_file" 2>/dev/null; then
             log "Applying local patch: $(basename "$patch_file") ..."
             git -C "$BUILD_DIR" apply "$patch_file"
+        elif [[ "$(basename "$patch_file")" == "smolvm-api-dns.patch" ]]; then
+            # The manager sends `dns` on every create; a build without this
+            # patch silently ignores it and guests fall back to the blocked
+            # compiled-in resolver. Fail loudly instead of skipping.
+            error "smolvm-api-dns.patch no longer applies cleanly. Verify whether upstream merged API dns support; if yes, delete the patch, otherwise rebase it."
         else
             log "Skipping $(basename "$patch_file"): does not apply cleanly (already merged upstream or codebase changed)."
         fi
