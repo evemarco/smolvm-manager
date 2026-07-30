@@ -14,7 +14,7 @@ A web-based manager for [SmolVM](https://github.com/smol-machines/smolvm) virtua
 ## Requirements
 
 - [Bun](https://bun.sh/) 1.3.14 or later
-- [Pylon](https://github.com/pylonsync/pylon) `0.3.333`, available as `pylon` or through `PYLON_COMMAND`
+- [Pylon](https://github.com/pylonsync/pylon) `0.3.355`, available as `pylon` or through `PYLON_COMMAND`
 - [SmolVM](https://github.com/smol-machines/smolvm) installed and serving its API on `unix:///tmp/smolvm.sock` — verified against **1.6.13** and **1.7.0** (see below)
 - KVM access through `/dev/kvm` on Linux hosts that run SmolVM
 - Optional: `libxmlsec1-openssl` runtime library if your Pylon package depends on it
@@ -58,7 +58,7 @@ If the downloaded executables fail with a glibc or shared-library error, build t
 ./scripts/build-smolvm.sh --version v1.7.0
 ```
 
-The Pylon script compiles the project-pinned `v0.3.333` release against the host glibc. The SmolVM script validates the version-matched Git LFS `libkrun` stack, creates the complete distribution, and automatically compiles SmolVM's patched `libkrun` and `libkrunfw` submodules over HTTPS only when compatibility checks require it.
+The Pylon script compiles the project-pinned `v0.3.355` release against the host glibc. The SmolVM script validates the version-matched Git LFS `libkrun` stack, creates the complete distribution, and automatically compiles SmolVM's patched `libkrun` and `libkrunfw` submodules over HTTPS only when compatibility checks require it.
 
 The builds require native development packages beyond Bun. Follow [docs/SOURCE_BUILDS.md](docs/SOURCE_BUILDS.md) before running them on a production host.
 
@@ -135,6 +135,8 @@ Examples are provided in `docs/reverse-proxy/`:
 
 **Important:** The proxy must only forward to the manager. Never expose the raw SmolVM Unix socket (`/tmp/smolvm.sock`) or a raw SmolVM TCP endpoint to the browser.
 
+**Live sync port:** the dashboard's reactive sync (metrics history, saved configs, UI preferences) connects directly from the browser to Pylon's HTTP port — derived from `PYLON_URL`, default `4321` — at `/api/sync/ws` and `/api/fn/*`, authenticated by the host-scoped `pylon_session` cookie. That port must be reachable from the browser (open it on LAN/Tailscale, or proxy it separately). VM statuses and capacity travel over SSE through the manager origin (`/api/smolvm/machines/stream`) and need no extra port.
+
 ### 5. Admin Setup
 
 On first start, visit the manager in a browser and complete the initial admin setup. One admin user is created; there is no multi-user admin panel.
@@ -207,7 +209,7 @@ The codebase is split between [Pylon](https://github.com/pylonsync/pylon) (metad
 - Authentication and sessions (admin role, session validation via `hooks.server.ts`)
 - Durable metadata: settings, saved VM configs, TOML snapshots, metrics history, audit events, UI preferences
 - RBAC policies for metadata access
-- Reactive sync MVP for UI state (dashboard view mode, saved configs, metrics samples bounded to 100)
+- Reactive sync MVP for UI state (dashboard view mode, saved configs, metrics samples bounded to 100 server-side via the entity's `sync: { limit: 100 }` scope; audit log and TOML snapshots stay out of client replicas with `sync: false`)
 
 **SvelteKit handles:**
 

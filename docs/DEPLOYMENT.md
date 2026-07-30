@@ -45,7 +45,7 @@ This file documents a complete production deployment layout for [SmolVM Manager]
 7. Copy `docs/smolvm-manager.env` to `/etc/smolvm-manager/env` and edit values. With Pylon 0.3.333 or later you must set `PYLON_ADMIN_TOKEN` (generate one with `openssl rand -hex 32`): Pylon default-denies anonymous entity access and the manager presents this token on its server-side calls.
 8. Copy `docs/smolvm-manager.service` and `docs/smolvm-serve.service` to `/etc/systemd/system/`. The SmolVM unit carries `UMask=0000` so the manager's unprivileged user may connect to `/tmp/smolvm.sock` (a `022` umask creates it `srwxr-xr-x`, which rejects non-root clients).
 9. Enable and start the service: `sudo systemctl enable --now smolvm-manager`.
-10. Optionally configure a reverse proxy using the examples in `docs/reverse-proxy/`.
+10. Optionally configure a reverse proxy using the examples in `docs/reverse-proxy/`. Whichever way the manager is exposed, keep Pylon's HTTP port (from `PYLON_URL`, default `4321`) reachable from browsers: the dashboard's live sync (`/api/sync/ws`, `/api/fn/*`) connects to it directly, authenticated by the host-scoped `pylon_session` cookie.
 
 ## Service User and Filesystem Isolation
 

@@ -28,7 +28,7 @@ source "$HOME/.cargo/env"
 
 `scripts/build-pylon.sh` compiles Pylon against the host's native glibc. Use it when the published Pylon executable fails with an error such as `GLIBC_x.y not found` or cannot load one of its native libraries.
 
-The script builds the Pylon version pinned by this project, currently `v0.3.333`, including its Studio web UI.
+The script builds the Pylon version pinned by this project, currently `v0.3.355`, including its Studio web UI.
 
 ### Pylon Build Requirements
 
@@ -67,13 +67,13 @@ Some Pylon builds also require `libxmlsec1-openssl.so.1` at runtime. Install `xm
 The default installation path is `$HOME/.local/bin/pylon`. Override the tag, clone directory, or installation directory with environment variables:
 
 ```sh
-TAG=v0.3.333 \
+TAG=v0.3.355 \
 REPO_DIR=/var/tmp/pylon-source \
 INSTALL_DIR=$HOME/.local/bin \
 ./scripts/build-pylon.sh
 ```
 
-`TAG` accepts three forms: an exact tag such as `v0.3.333`, `latest` to resolve and build the newest release tag from the remote, or an empty value (`TAG=""`) to build the latest commit on the default branch. Building a newer server should be paired with the matching `@pylonsync/*` package versions in `package.json` so the manager and the server share the same protocol revision.
+`TAG` accepts three forms: an exact tag such as `v0.3.355`, `latest` to resolve and build the newest release tag from the remote, or an empty value (`TAG=""`) to build the latest commit on the default branch. Building a newer server should be paired with the matching `@pylonsync/*` package versions in `package.json` so the manager and the server share the same protocol revision.
 
 Verify the result:
 
