@@ -2,7 +2,9 @@ import { expect, test } from 'bun:test';
 import { createSmolVmClient, type SmolVmTransport } from './smolvm-client';
 import { createManagerHealth } from './manager-health';
 
-function healthTransport(handler: (path: string) => { status: number; body: string }): SmolVmTransport {
+function healthTransport(
+  handler: (path: string) => { status: number; body: string }
+): SmolVmTransport {
   return async (_socketPath, options) => {
     const result = handler(options.path);
     return { status: result.status, headers: {}, body: result.body };

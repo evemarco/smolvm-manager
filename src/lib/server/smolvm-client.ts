@@ -41,12 +41,22 @@ export type SmolVmHealth = {
   [key: string]: unknown;
 };
 
+export type SmolVmReadiness = {
+  status: string;
+  [key: string]: unknown;
+};
+
 export type SmolVmCapacity = Record<string, unknown>;
 
 export type SmolVmMachine = {
   name: string;
   status?: string;
   state?: string;
+  cpuMillis?: number;
+  cpuSeconds?: number;
+  rssMb?: number;
+  diskUsedMb?: number;
+  egressBytes?: number;
   [key: string]: unknown;
 };
 
@@ -65,6 +75,7 @@ export type SmolVmExecEnvVar = {
 export type SmolVmExecRequest = {
   command: string[];
   env?: SmolVmExecEnvVar[];
+  secrets?: SmolVmExecEnvVar[];
   workdir?: string;
   timeoutSecs?: number;
   stdin?: string;
@@ -75,6 +86,8 @@ export type SmolVmExecResponse = {
   exitCode: number;
   stdout: string;
   stderr: string;
+  stdoutB64?: string;
+  stderrB64?: string;
 };
 
 export type SmolVmFileDownload = {
@@ -107,6 +120,69 @@ export type SmolVmPullImageRequest = {
 export type SmolVmPullImageResponse = {
   machine: string;
   image: SmolVmImageInfo;
+};
+
+export type SmolVmResizeRequest = {
+  storageGb?: number;
+  overlayGb?: number;
+};
+
+export type SmolVmForkRequest = {
+  name: string;
+  ports?: Array<{ host: number; guest: number }>;
+  shareWeights?: Record<string, number>;
+  env?: SmolVmExecEnvVar[];
+  secrets?: SmolVmExecEnvVar[];
+};
+
+export type SmolVmExportRequest = {
+  repo?: string;
+  tag?: string;
+  pushToken?: string;
+  referenceHost?: string;
+};
+
+export type SmolVmExportResponse = {
+  digest: string;
+  sizeBytes: number;
+  platform: string;
+  manifest: unknown;
+};
+
+export type SmolVmRunRequest = {
+  image: string;
+  command: string[];
+  env?: SmolVmExecEnvVar[];
+  secrets?: SmolVmExecEnvVar[];
+  workdir?: string;
+  timeoutSecs?: number;
+};
+
+export type SmolVmVolumeCreateRequest = {
+  id?: string;
+  sizeGb: number;
+  backend?: string;
+};
+
+export type SmolVmVolumeInfo = {
+  id: string;
+  nodePath: string;
+  [key: string]: unknown;
+};
+
+export type SmolVmRegistryAuth = {
+  username: string;
+  password: string;
+};
+
+export type SmolVmStartMachineOptions = {
+  forkable?: boolean;
+  registryAuth?: SmolVmRegistryAuth;
+};
+
+export type SmolVmDeleteMachineOptions = {
+  force?: boolean;
+  cascade?: boolean;
 };
 
 export type SmolVmRequestOptions = {
@@ -155,6 +231,7 @@ export type SmolVmClientOptions = {
 export type SmolVmLogStreamOptions = {
   tail: number;
   follow: boolean;
+  format?: string;
   signal?: AbortSignal;
 };
 
@@ -163,14 +240,20 @@ export type SmolVmCreateMachineBody = Record<string, unknown>;
 export type SmolVmClient = {
   socketPath: string;
   getHealth(): Promise<SmolVmHealth>;
+  getReadyz(): Promise<SmolVmReadiness>;
   getCapacity(): Promise<SmolVmCapacity>;
   getMetrics(): Promise<string>;
+  drainNode(): Promise<SmolVmActionResult>;
   listMachines(): Promise<SmolVmMachineList>;
   getMachine(name: string): Promise<SmolVmMachine>;
   createMachine(body: SmolVmCreateMachineBody): Promise<SmolVmMachine>;
-  startMachine(name: string): Promise<SmolVmActionResult>;
+  startMachine(name: string, options?: SmolVmStartMachineOptions): Promise<SmolVmActionResult>;
   stopMachine(name: string): Promise<SmolVmActionResult>;
-  deleteMachine(name: string): Promise<SmolVmActionResult>;
+  deleteMachine(name: string, options?: SmolVmDeleteMachineOptions): Promise<SmolVmActionResult>;
+  resizeMachine(name: string, body: SmolVmResizeRequest): Promise<SmolVmActionResult>;
+  forkMachine(name: string, body: SmolVmForkRequest): Promise<SmolVmMachine>;
+  exportMachine(name: string, body: SmolVmExportRequest): Promise<SmolVmExportResponse>;
+  runMachineImage(name: string, body: SmolVmRunRequest): Promise<SmolVmExecResponse>;
   openLogStream(name: string, options: SmolVmLogStreamOptions): Promise<SmolVmStreamResponse>;
   execStream(
     name: string,
@@ -179,8 +262,11 @@ export type SmolVmClient = {
   ): Promise<SmolVmStreamResponse>;
   execMachine(name: string, body: SmolVmExecRequest): Promise<SmolVmExecResponse>;
   downloadMachineFile(name: string, path: string): Promise<SmolVmFileDownload>;
+  uploadMachineFile(name: string, path: string, content: string): Promise<SmolVmActionResult>;
   listMachineImages(name: string): Promise<SmolVmImageList>;
   pullMachineImage(name: string, body: SmolVmPullImageRequest): Promise<SmolVmPullImageResponse>;
+  provisionVolume(body: SmolVmVolumeCreateRequest): Promise<SmolVmVolumeInfo>;
+  deleteVolume(id: string): Promise<SmolVmActionResult>;
 };
 
 function getConfiguredSocketPath(): string {
@@ -258,11 +344,13 @@ function asMachineList(value: unknown): SmolVmMachineList {
 function asExecResponse(value: unknown): SmolVmExecResponse {
   const object = assertObject(value, 'SmolVM returned an invalid exec payload.');
   const exitCode = object.exitCode ?? object.exit_code;
-  if (
-    typeof exitCode !== 'number' ||
-    typeof object.stdout !== 'string' ||
-    typeof object.stderr !== 'string'
-  ) {
+  const stdoutB64 = object.stdoutB64;
+  const stderrB64 = object.stderrB64;
+  // SmolVM 1.7 may return only base64 fields for binary output; the text
+  // fields are then absent rather than empty.
+  const stdout = object.stdout ?? (typeof stdoutB64 === 'string' ? '' : undefined);
+  const stderr = object.stderr ?? (typeof stderrB64 === 'string' ? '' : undefined);
+  if (typeof exitCode !== 'number' || typeof stdout !== 'string' || typeof stderr !== 'string') {
     throw new SmolVmError(
       SMOLVM_ERROR_CODES.BAD_RESPONSE,
       'SmolVM exec payload is missing exitCode/stdout/stderr.',
@@ -271,9 +359,46 @@ function asExecResponse(value: unknown): SmolVmExecResponse {
   }
   return {
     exitCode,
-    stdout: object.stdout,
-    stderr: object.stderr
+    stdout,
+    stderr,
+    ...(typeof stdoutB64 === 'string' ? { stdoutB64 } : {}),
+    ...(typeof stderrB64 === 'string' ? { stderrB64 } : {})
   };
+}
+
+function asExportResponse(value: unknown): SmolVmExportResponse {
+  const object = assertObject(value, 'SmolVM returned an invalid export payload.');
+  const sizeBytes = object.sizeBytes ?? object.size_bytes;
+  if (
+    typeof object.digest !== 'string' ||
+    typeof sizeBytes !== 'number' ||
+    typeof object.platform !== 'string'
+  ) {
+    throw new SmolVmError(
+      SMOLVM_ERROR_CODES.BAD_RESPONSE,
+      'SmolVM export payload is missing digest/sizeBytes/platform.',
+      502
+    );
+  }
+  return {
+    digest: object.digest,
+    sizeBytes,
+    platform: object.platform,
+    manifest: object.manifest ?? null
+  };
+}
+
+function asVolumeInfo(value: unknown): SmolVmVolumeInfo {
+  const object = assertObject(value, 'SmolVM returned an invalid volume payload.');
+  const nodePath = object.nodePath ?? object.node_path;
+  if (typeof object.id !== 'string' || typeof nodePath !== 'string') {
+    throw new SmolVmError(
+      SMOLVM_ERROR_CODES.BAD_RESPONSE,
+      'SmolVM volume payload is missing id/nodePath.',
+      502
+    );
+  }
+  return { ...object, id: object.id, nodePath };
 }
 
 function asImageInfo(value: unknown): SmolVmImageInfo {
@@ -521,6 +646,20 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
       });
     },
 
+    getReadyz() {
+      return callSmolVm(socketPath, transport, { method: 'GET', path: '/readyz' }, (value) => {
+        const object = assertObject(value, 'SmolVM returned an invalid readiness payload.');
+        if (typeof object.status !== 'string') {
+          throw new SmolVmError(
+            SMOLVM_ERROR_CODES.BAD_RESPONSE,
+            'SmolVM readiness payload is missing status.',
+            502
+          );
+        }
+        return object as SmolVmReadiness;
+      });
+    },
+
     getCapacity() {
       return callSmolVm(socketPath, transport, { method: 'GET', path: '/capacity' }, (value) =>
         assertObject(value, 'SmolVM returned an invalid capacity payload.')
@@ -533,6 +672,15 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
         transport,
         { method: 'GET', path: '/metrics', responseType: 'text' },
         (value) => String(value)
+      );
+    },
+
+    drainNode() {
+      return callSmolVm(
+        socketPath,
+        transport,
+        { method: 'POST', path: '/drain' },
+        (value) => value as SmolVmActionResult
       );
     },
 
@@ -560,11 +708,18 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
       });
     },
 
-    startMachine(name) {
+    startMachine(name, options) {
+      const params = new URLSearchParams();
+      if (options?.forkable !== undefined) params.set('forkable', String(options.forkable));
+      const query = params.toString();
       return callSmolVm(
         socketPath,
         transport,
-        { method: 'POST', path: `/api/v1/machines/${safeMachinePath(name)}/start` },
+        {
+          method: 'POST',
+          path: `/api/v1/machines/${safeMachinePath(name)}/start${query ? `?${query}` : ''}`,
+          ...(options?.registryAuth ? { body: { registryAuth: options.registryAuth } } : {})
+        },
         (value) => value as SmolVmActionResult
       );
     },
@@ -578,11 +733,18 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
       );
     },
 
-    deleteMachine(name) {
+    deleteMachine(name, options) {
+      const params = new URLSearchParams();
+      if (options?.force) params.set('force', 'true');
+      if (options?.cascade) params.set('cascade', 'true');
+      const query = params.toString();
       return callSmolVm(
         socketPath,
         transport,
-        { method: 'DELETE', path: `/api/v1/machines/${safeMachinePath(name)}` },
+        {
+          method: 'DELETE',
+          path: `/api/v1/machines/${safeMachinePath(name)}${query ? `?${query}` : ''}`
+        },
         (value) => value as SmolVmActionResult
       ).then((result) => {
         imageCache.delete(name);
@@ -590,10 +752,77 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
       });
     },
 
+    resizeMachine(name, body) {
+      if (body.storageGb === undefined && body.overlayGb === undefined) {
+        throw new SmolVmError(
+          SMOLVM_ERROR_CODES.REQUEST_FAILED,
+          'At least one of storageGb or overlayGb is required.',
+          400
+        );
+      }
+      return callSmolVm(
+        socketPath,
+        transport,
+        {
+          method: 'POST',
+          path: `/api/v1/machines/${safeMachinePath(name)}/resize`,
+          body
+        },
+        (value) => value as SmolVmActionResult
+      );
+    },
+
+    forkMachine(name, body) {
+      if (!body.name?.trim()) {
+        throw new SmolVmError(
+          SMOLVM_ERROR_CODES.REQUEST_FAILED,
+          'Fork machine name is required.',
+          400
+        );
+      }
+      return callSmolVm(
+        socketPath,
+        transport,
+        {
+          method: 'POST',
+          path: `/api/v1/machines/${safeMachinePath(name)}/fork`,
+          body
+        },
+        asMachine
+      );
+    },
+
+    exportMachine(name, body) {
+      return callSmolVm(
+        socketPath,
+        transport,
+        {
+          method: 'POST',
+          path: `/api/v1/machines/${safeMachinePath(name)}/export`,
+          body
+        },
+        asExportResponse
+      );
+    },
+
+    runMachineImage(name, body) {
+      return callSmolVm(
+        socketPath,
+        transport,
+        {
+          method: 'POST',
+          path: `/api/v1/machines/${safeMachinePath(name)}/run`,
+          body
+        },
+        asExecResponse
+      );
+    },
+
     async openLogStream(name, options) {
       const params = new URLSearchParams({ tail: String(options.tail) });
       // SmolVM 1.6.13+ strictly deserializes `follow` as a boolean.
       if (options.follow) params.set('follow', 'true');
+      if (options.format) params.set('format', options.format);
 
       let response: SmolVmStreamResponse;
       try {
@@ -700,6 +929,20 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
       );
     },
 
+    uploadMachineFile(name, path, content) {
+      const guestPath = safeGuestFilePath(path);
+      return callSmolVm(
+        socketPath,
+        transport,
+        {
+          method: 'PUT',
+          path: `/api/v1/machines/${safeMachinePath(name)}/files/${guestPath}`,
+          body: { content }
+        },
+        (value) => value as SmolVmActionResult
+      );
+    },
+
     listMachineImages(name) {
       return callSmolVm(
         socketPath,
@@ -719,6 +962,32 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
           body
         },
         (value) => asPullImageResponse(name, value)
+      );
+    },
+
+    provisionVolume(body) {
+      return callSmolVm(
+        socketPath,
+        transport,
+        {
+          method: 'POST',
+          path: '/api/v1/volumes',
+          body
+        },
+        asVolumeInfo
+      );
+    },
+
+    deleteVolume(id) {
+      const trimmed = id.trim();
+      if (!trimmed) {
+        throw new SmolVmError(SMOLVM_ERROR_CODES.REQUEST_FAILED, 'Volume id is required.', 400);
+      }
+      return callSmolVm(
+        socketPath,
+        transport,
+        { method: 'DELETE', path: `/api/v1/volumes/${encodeURIComponent(trimmed)}` },
+        (value) => value as SmolVmActionResult
       );
     }
   };

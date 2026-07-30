@@ -9,6 +9,8 @@ import {
   normalizeSmolVmError,
   type SmolVmClient,
   type SmolVmRequestOptions,
+  type SmolVmStreamResponse,
+  type SmolVmStreamTransport,
   type SmolVmTransport
 } from './smolvm-client';
 
@@ -338,6 +340,248 @@ test('smolvm-client maps image list and pull to machine-scoped SmolVM endpoints'
     { method: 'GET', path: '/api/v1/machines/vm/images' },
     { method: 'POST', path: '/api/v1/machines/vm/images/pull', body: { image: 'alpine:latest' } }
   ]);
+});
+
+test('smolvm-client getReadyz constructs GET /readyz', async () => {
+  const { calls, transport } = createCapturingTransport({ status: 'ready' });
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  const readyz = await client.getReadyz();
+
+  expect(readyz.status).toBe('ready');
+  expect(calls).toEqual([
+    {
+      socketPath: '/tmp/test.sock',
+      options: { method: 'GET', path: '/readyz' }
+    }
+  ]);
+});
+
+test('smolvm-client drainNode constructs POST /drain', async () => {
+  const { calls, transport } = createCapturingTransport({ drained: true });
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  await client.drainNode();
+
+  expect(calls.map((call) => call.options)).toEqual([{ method: 'POST', path: '/drain' }]);
+});
+
+test('smolvm-client resizeMachine posts body and rejects when neither field present', async () => {
+  const { calls, transport } = createCapturingTransport({ ok: true });
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  await client.resizeMachine('vm one', { storageGb: 20 });
+
+  expect(calls).toEqual([
+    {
+      socketPath: '/tmp/test.sock',
+      options: {
+        method: 'POST',
+        path: '/api/v1/machines/vm%20one/resize',
+        body: { storageGb: 20 }
+      }
+    }
+  ]);
+
+  await expect((async () => client.resizeMachine('vm one', {}))()).rejects.toMatchObject({
+    code: SMOLVM_ERROR_CODES.REQUEST_FAILED,
+    status: 400
+  });
+});
+
+test('smolvm-client forkMachine posts body and rejects empty clone name', async () => {
+  const { calls, transport } = createCapturingTransport({ name: 'clone', state: 'stopped' });
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  const forked = await client.forkMachine('vm one', { name: 'clone' });
+
+  expect(forked.name).toBe('clone');
+  expect(calls).toEqual([
+    {
+      socketPath: '/tmp/test.sock',
+      options: {
+        method: 'POST',
+        path: '/api/v1/machines/vm%20one/fork',
+        body: { name: 'clone' }
+      }
+    }
+  ]);
+
+  await expect((async () => client.forkMachine('vm one', { name: '  ' }))()).rejects.toMatchObject({
+    code: SMOLVM_ERROR_CODES.REQUEST_FAILED,
+    status: 400
+  });
+});
+
+test('smolvm-client exportMachine maps to typed ExportResponse', async () => {
+  const { calls, transport } = createCapturingTransport({
+    digest: 'sha256:abc',
+    sizeBytes: 1234,
+    platform: 'linux/amd64',
+    manifest: { layers: [] }
+  });
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  const exported = await client.exportMachine('vm', { repo: 'mine', tag: 'v1' });
+
+  expect(exported).toEqual({
+    digest: 'sha256:abc',
+    sizeBytes: 1234,
+    platform: 'linux/amd64',
+    manifest: { layers: [] }
+  });
+  expect(calls[0].options).toEqual({
+    method: 'POST',
+    path: '/api/v1/machines/vm/export',
+    body: { repo: 'mine', tag: 'v1' }
+  });
+});
+
+test('smolvm-client runMachineImage posts to run endpoint', async () => {
+  const { calls, transport } = createCapturingTransport({
+    exitCode: 0,
+    stdout: 'done',
+    stderr: ''
+  });
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  await client.runMachineImage('vm', { image: 'alpine', command: ['echo', 'hi'] });
+
+  expect(calls[0].options).toEqual({
+    method: 'POST',
+    path: '/api/v1/machines/vm/run',
+    body: { image: 'alpine', command: ['echo', 'hi'] }
+  });
+});
+
+test('smolvm-client uploadMachineFile PUTs file content with encoded guest path', async () => {
+  const { calls, transport } = createCapturingTransport({ ok: true });
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  await client.uploadMachineFile('vm/files', '/etc/hosts', 'hello');
+
+  expect(calls[0]).toEqual({
+    socketPath: '/tmp/test.sock',
+    options: {
+      method: 'PUT',
+      path: '/api/v1/machines/vm%2Ffiles/files/etc/hosts',
+      body: { content: 'hello' }
+    }
+  });
+});
+
+test('smolvm-client provisionVolume posts to /api/v1/volumes and returns nodePath', async () => {
+  const { calls, transport } = createCapturingTransport({
+    id: 'vol-1',
+    nodePath: '/var/smolvm/vol-1'
+  });
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  const volume = await client.provisionVolume({ sizeGb: 10, backend: 'lvm' });
+
+  expect(volume).toEqual({ id: 'vol-1', nodePath: '/var/smolvm/vol-1' });
+  expect(calls[0].options).toEqual({
+    method: 'POST',
+    path: '/api/v1/volumes',
+    body: { sizeGb: 10, backend: 'lvm' }
+  });
+});
+
+test('smolvm-client deleteVolume DELETEs /api/v1/volumes/{id}', async () => {
+  const { calls, transport } = createCapturingTransport({ ok: true });
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  await client.deleteVolume('vol one');
+
+  expect(calls.map((call) => call.options)).toEqual([
+    { method: 'DELETE', path: '/api/v1/volumes/vol%20one' }
+  ]);
+});
+
+test('smolvm-client deleteMachine appends force/cascade query only when true', async () => {
+  const calls: Array<{ socketPath: string; options: SmolVmRequestOptions }> = [];
+  const transport: SmolVmTransport = async (socketPath, options) => {
+    calls.push({ socketPath, options });
+    return response(200, { ok: true });
+  };
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  await client.deleteMachine('vm');
+  await client.deleteMachine('vm', { force: false, cascade: false });
+  await client.deleteMachine('vm', { force: true, cascade: true });
+
+  expect(calls.map((call) => call.options.path)).toEqual([
+    '/api/v1/machines/vm',
+    '/api/v1/machines/vm',
+    '/api/v1/machines/vm?force=true&cascade=true'
+  ]);
+});
+
+test('smolvm-client startMachine sends forkable query and registryAuth body', async () => {
+  const calls: Array<{ socketPath: string; options: SmolVmRequestOptions }> = [];
+  const transport: SmolVmTransport = async (socketPath, options) => {
+    calls.push({ socketPath, options });
+    return response(200, { ok: true });
+  };
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  await client.startMachine('vm');
+  await client.startMachine('vm', { forkable: true });
+  await client.startMachine('vm', {
+    registryAuth: { username: 'u', password: 'p' }
+  });
+
+  expect(calls.map((call) => call.options)).toEqual([
+    { method: 'POST', path: '/api/v1/machines/vm/start' },
+    { method: 'POST', path: '/api/v1/machines/vm/start?forkable=true' },
+    {
+      method: 'POST',
+      path: '/api/v1/machines/vm/start',
+      body: { registryAuth: { username: 'u', password: 'p' } }
+    }
+  ]);
+});
+
+test('smolvm-client exec tolerates base64-only responses and passes B64 through', async () => {
+  const transport: SmolVmTransport = async () =>
+    response(200, { exitCode: 0, stdoutB64: 'aGVsbG8=', stderrB64: '' });
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  const exec = await client.execMachine('vm', { command: ['true'] });
+
+  expect(exec).toEqual({
+    exitCode: 0,
+    stdout: '',
+    stderr: '',
+    stdoutB64: 'aGVsbG8=',
+    stderrB64: ''
+  });
+});
+
+test('smolvm-client openLogStream serializes format query param', async () => {
+  const captured: SmolVmRequestOptions[] = [];
+  const streamTransport: SmolVmStreamTransport = async (_socket, options) => {
+    captured.push(options);
+    const streamResponse: SmolVmStreamResponse = {
+      status: 200,
+      headers: {},
+      stream: (async function* () {
+        yield new Uint8Array();
+      })(),
+      close: () => undefined
+    };
+    return streamResponse;
+  };
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', streamTransport });
+
+  const withFormat = await client.openLogStream('vm', {
+    tail: 10,
+    follow: true,
+    format: 'json'
+  });
+  withFormat.close();
+
+  expect(captured[0].path).toBe('/api/v1/machines/vm/logs?tail=10&follow=true&format=json');
 });
 
 if (existsSync(DEFAULT_SMOLVM_SOCKET)) {
