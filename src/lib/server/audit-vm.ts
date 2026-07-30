@@ -1,6 +1,7 @@
 import { createServiceAuthContext, getManagerStoreClient } from '$lib/server/manager-store-client';
 
-export type VmLifecycleAction = 'vm.create' | 'vm.start' | 'vm.stop' | 'vm.delete';
+export type VmLifecycleAction =
+  'vm.create' | 'vm.start' | 'vm.stop' | 'vm.delete' | 'vm.fork' | 'vm.export';
 
 export type VmAuditStore = {
   insertAuditEvent: (
