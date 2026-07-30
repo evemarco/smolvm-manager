@@ -125,8 +125,17 @@ export function getSmolVmCommand(): string {
   return process.env.SMOLVM_COMMAND?.trim() || 'smolvm';
 }
 
+function getOptionalEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
 export const runSmolVmMachineUpdate: SmolVmMachineUpdateRunner = async (command) => {
+  const updateHome = getOptionalEnv('SMOLVM_UPDATE_HOME');
+  const updateCwd = getOptionalEnv('SMOLVM_UPDATE_CWD');
   const proc = Bun.spawn([...command], {
+    ...(updateCwd ? { cwd: updateCwd } : {}),
+    ...(updateHome ? { env: { ...process.env, HOME: updateHome } } : {}),
     stdout: 'pipe',
     stderr: 'pipe'
   });
@@ -141,6 +150,8 @@ export const runSmolVmMachineUpdate: SmolVmMachineUpdateRunner = async (command)
   const detail = stderr.trim() || stdout.trim() || `smolvm exited with status ${exitCode}`;
   throw new SmolVmError(SMOLVM_ERROR_CODES.REQUEST_FAILED, detail, exitCode === 127 ? 503 : 502, {
     exitCode,
-    command: command.join(' ')
+    command: command.join(' '),
+    ...(updateCwd ? { cwd: updateCwd } : {}),
+    ...(updateHome ? { home: updateHome } : {})
   });
 };
