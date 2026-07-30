@@ -347,7 +347,8 @@ describe('vm-config: API request conversion', () => {
     expect(req.ports).toEqual([{ host: 8080, guest: 80 }]);
     expect(req.mounts).toEqual([{ source: '/data', target: '/app/data', readonly: true }]);
     expect(req.env).toEqual({ FOO: 'bar' });
-    expect(req.sshAgent).toBe(true);
+    // sshAgent is CLI-only upstream (silently ignored by the HTTP API)
+    expect('sshAgent' in req).toBe(false);
   });
 
   it('sends network (not net) in create request', () => {
@@ -373,7 +374,7 @@ describe('vm-config: API request conversion', () => {
     expect('volumes' in req).toBe(false);
   });
 
-  it('sends memoryMb/storageGb/overlayGb/gpuVramMb (not memory/storage/overlay/gpuVram)', () => {
+  it('sends memoryMb/storageGb/overlayGb (not memory/storage/overlay)', () => {
     const config: VmConfig = {
       name: 'field-test',
       memory: 1024,
@@ -385,11 +386,44 @@ describe('vm-config: API request conversion', () => {
     expect(req.memoryMb).toBe(1024);
     expect(req.storageGb).toBe(20);
     expect(req.overlayGb).toBe(10);
-    expect(req.gpuVramMb).toBe(8192);
     expect('memory' in req).toBe(false);
     expect('storage' in req).toBe(false);
     expect('overlay' in req).toBe(false);
     expect('gpuVram' in req).toBe(false);
+    // gpuVramMb is CLI-only upstream (silently ignored by the HTTP API)
+    expect('gpuVramMb' in req).toBe(false);
+  });
+
+  it('sends allowedHosts/allowedCidrs (upstream wire names) and default Hetzner dns', () => {
+    const config: VmConfig = {
+      name: 'egress-test',
+      allowHosts: ['github.com'],
+      allowCidrs: ['10.0.0.0/8']
+    };
+    const req = configToCreateRequest(config);
+    expect(req.allowedHosts).toEqual(['github.com']);
+    expect(req.allowedCidrs).toEqual(['10.0.0.0/8']);
+    expect('allowHosts' in req).toBe(false);
+    expect('allowCidrs' in req).toBe(false);
+    expect(req.dns).toBe('185.12.64.1');
+  });
+
+  it('lets config.dns override the default and SMOLVM_GUEST_DNS=none opt out', () => {
+    const custom = configToCreateRequest({ name: 'dns-test', dns: '185.12.64.2' });
+    expect(custom.dns).toBe('185.12.64.2');
+
+    const prev = process.env.SMOLVM_GUEST_DNS;
+    try {
+      process.env.SMOLVM_GUEST_DNS = 'none';
+      const optedOut = configToCreateRequest({ name: 'dns-test' });
+      expect('dns' in optedOut).toBe(false);
+      process.env.SMOLVM_GUEST_DNS = '192.168.0.1';
+      const fromEnv = configToCreateRequest({ name: 'dns-test' });
+      expect(fromEnv.dns).toBe('192.168.0.1');
+    } finally {
+      if (prev === undefined) delete process.env.SMOLVM_GUEST_DNS;
+      else process.env.SMOLVM_GUEST_DNS = prev;
+    }
   });
 
   it('converts config to update request (excludes recreate fields)', () => {
@@ -681,5 +715,72 @@ describe('vm-config: sensitive host mount detection', () => {
     ]);
     expect(warnings).toHaveLength(1);
     expect(warnings[0].reason).toContain('User home directory');
+  });
+});
+
+describe('vm-config: 1.7 fields', () => {
+  it('round-trips secrets, dockerSocket, restart, and registryIdentityToken through TOML', () => {
+    const original: VmConfig = {
+      name: 'vm-17',
+      image: 'alpine',
+      secrets: [{ name: 'API_KEY', value: 's3cr3t' }],
+      dockerSocket: true,
+      restart: 'unless-stopped',
+      registryIdentityToken: 'token-abc'
+    };
+    const toml = configToToml(original);
+    expect(toml).toContain('[secrets]');
+    expect(toml).toContain('API_KEY = "s3cr3t"');
+    expect(toml).toContain('[runtime]');
+    expect(toml).toContain('docker_socket = true');
+    expect(toml).toContain('restart = "unless-stopped"');
+    expect(toml).toContain('registry_identity_token = "token-abc"');
+
+    const { config: parsed, errors } = parseTomlToConfig(toml);
+    expect(errors).toHaveLength(0);
+    expect(parsed.secrets).toEqual([{ name: 'API_KEY', value: 's3cr3t' }]);
+    expect(parsed.dockerSocket).toBe(true);
+    expect(parsed.restart).toBe('unless-stopped');
+    expect(parsed.registryIdentityToken).toBe('token-abc');
+  });
+
+  it('emits secrets/dockerSocket/restart/registryIdentityToken in create request with upstream names', () => {
+    const config: VmConfig = {
+      name: 'vm-17',
+      secrets: [{ name: 'API_KEY', value: 's3cr3t' }],
+      dockerSocket: true,
+      restart: 'always',
+      registryIdentityToken: 'token-abc'
+    };
+    const req = configToCreateRequest(config);
+    expect(req.secrets).toEqual([{ name: 'API_KEY', value: 's3cr3t' }]);
+    expect(req.dockerSocket).toBe(true);
+    expect(req.restart).toBe('always');
+    expect(req.registryIdentityToken).toBe('token-abc');
+  });
+
+  it('omits the new fields from create request when unset', () => {
+    const req = configToCreateRequest({ name: 'vm-17' });
+    expect('secrets' in req).toBe(false);
+    expect('dockerSocket' in req).toBe(false);
+    expect('restart' in req).toBe(false);
+    expect('registryIdentityToken' in req).toBe(false);
+  });
+
+  it('rejects invalid secret names', () => {
+    const result = validateVmConfig({
+      name: 'vm',
+      secrets: [{ name: '123BAD', value: 'x' }]
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.field === 'secrets')).toBe(true);
+  });
+
+  it('accepts valid secret names', () => {
+    const result = validateVmConfig({
+      name: 'vm',
+      secrets: [{ name: 'GOOD_KEY', value: 'x' }]
+    });
+    expect(result.valid).toBe(true);
   });
 });

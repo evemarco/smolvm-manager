@@ -4,8 +4,16 @@
  *
  * SmolVM supports these v1 config fields:
  * - name, image/tag, from (.smolmachine), cpus, memory (MiB), storage (GiB),
- *   overlay (GiB), net, allow_hosts, allow_cidrs, ports, volumes, env,
+ *   overlay (GiB), net, allow_hosts, allow_cidrs, dns, ports, volumes, env,
  *   workdir, init, ssh_agent, gpu, gpu_vram (MiB), entrypoint, cmd
+ * - since 1.7: secrets, docker_socket, restart, registry_identity_token
+ *
+ * Wire-name notes (CreateMachineRequest, verified against 1.7.1 types.rs):
+ * - egress lists serialize as `allowedHosts`/`allowedCidrs` — the bare
+ *   `allowHosts`/`allowCidrs` names are silently ignored upstream.
+ * - `init`, `sshAgent` and `gpuVramMb` are CLI-only and silently ignored by
+ *   the HTTP API, so they are NOT emitted in create/update payloads.
+ * - `dns` requires the local smolvm-api-dns.patch (adds it to the API).
  *
  * Fields that require recreation (cannot be updated on a running/stopped VM):
  * - image, entrypoint, cmd, from
@@ -26,6 +34,11 @@ export type VmVolumeMount = {
   readOnly?: boolean;
 };
 
+export type VmSecretVar = {
+  name: string;
+  value: string;
+};
+
 export type VmConfig = {
   name: string;
   image?: string;
@@ -40,9 +53,14 @@ export type VmConfig = {
   gpuVram?: number; // MiB
   allowHosts?: string[];
   allowCidrs?: string[];
+  dns?: string; // guest DNS resolver (single IPv4); defaults to Hetzner's
   ports?: VmPortMapping[];
   volumes?: VmVolumeMount[];
   env?: Record<string, string>;
+  secrets?: VmSecretVar[];
+  dockerSocket?: boolean;
+  restart?: string;
+  registryIdentityToken?: string;
   workdir?: string;
   init?: string[];
   sshAgent?: boolean;
@@ -80,6 +98,7 @@ export type { SensitiveMountWarning } from '$lib/types';
 const VALID_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
 const VALID_CIDR_RE = /^(\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/;
 const VALID_HOST_RE = /^[a-zA-Z0-9]([a-zA-Z0-9_.-]*[a-zA-Z0-9])?$/;
+const VALID_IPV4_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
 
 export function validateVmConfig(config: VmConfig): ValidationResult {
   const errors: ValidationError[] = [];
@@ -171,6 +190,14 @@ export function validateVmConfig(config: VmConfig): ValidationResult {
     }
   }
 
+  // Guest DNS resolver (single IPv4, matching the upstream field type)
+  if (config.dns !== undefined && !VALID_IPV4_RE.test(config.dns)) {
+    errors.push({
+      field: 'dns',
+      message: `Invalid DNS resolver IPv4 address: "${config.dns}".`
+    });
+  }
+
   // Env keys
   if (config.env) {
     for (const key of Object.keys(config.env)) {
@@ -178,6 +205,18 @@ export function validateVmConfig(config: VmConfig): ValidationResult {
         errors.push({
           field: 'env',
           message: `Invalid environment variable name: "${key}".`
+        });
+      }
+    }
+  }
+
+  // Secret names follow the same rules as env keys
+  if (config.secrets) {
+    for (const secret of config.secrets) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(secret.name)) {
+        errors.push({
+          field: 'secrets',
+          message: `Invalid secret name: "${secret.name}".`
         });
       }
     }
@@ -263,12 +302,14 @@ export function configToToml(config: VmConfig): string {
   // Network section
   if (
     config.net ||
+    config.dns ||
     (config.ports && config.ports.length > 0) ||
     (config.allowHosts && config.allowHosts.length > 0) ||
     (config.allowCidrs && config.allowCidrs.length > 0)
   ) {
     lines.push('[network]');
     if (config.net !== undefined) lines.push(`net = ${config.net ? 'true' : 'false'}`);
+    if (config.dns) lines.push(`dns = "${escapeToml(config.dns)}"`);
     if (config.ports && config.ports.length > 0) {
       lines.push(`ports = [${config.ports.map((p) => `"${p.host}:${p.guest}"`).join(', ')}]`);
     }
@@ -301,6 +342,26 @@ export function configToToml(config: VmConfig): string {
     for (const [key, value] of Object.entries(config.env)) {
       lines.push(`${key} = "${escapeToml(value)}"`);
     }
+    lines.push('');
+  }
+
+  // Secrets section
+  if (config.secrets && config.secrets.length > 0) {
+    lines.push('[secrets]');
+    for (const secret of config.secrets) {
+      lines.push(`${secret.name} = "${escapeToml(secret.value)}"`);
+    }
+    lines.push('');
+  }
+
+  // Runtime section
+  if (config.dockerSocket !== undefined || config.restart || config.registryIdentityToken) {
+    lines.push('[runtime]');
+    if (config.dockerSocket !== undefined)
+      lines.push(`docker_socket = ${config.dockerSocket ? 'true' : 'false'}`);
+    if (config.restart) lines.push(`restart = "${escapeToml(config.restart)}"`);
+    if (config.registryIdentityToken)
+      lines.push(`registry_identity_token = "${escapeToml(config.registryIdentityToken)}"`);
     lines.push('');
   }
 
@@ -395,6 +456,7 @@ export function parseTomlToConfig(toml: string): { config: VmConfig; errors: Val
         break;
       case 'network':
         if (key === 'net') config.net = Boolean(value);
+        else if (key === 'dns') config.dns = String(value);
         else if (key === 'ports') config.ports = parsePortArray(String(value));
         else if (key === 'allow_hosts') config.allowHosts = parseStringArray(String(value));
         else if (key === 'allow_cidrs') config.allowCidrs = parseStringArray(String(value));
@@ -410,6 +472,15 @@ export function parseTomlToConfig(toml: string): { config: VmConfig; errors: Val
       case 'env':
         config.env = config.env ?? {};
         config.env[key] = String(value);
+        break;
+      case 'secrets':
+        config.secrets = config.secrets ?? [];
+        config.secrets.push({ name: key, value: String(value) });
+        break;
+      case 'runtime':
+        if (key === 'docker_socket') config.dockerSocket = Boolean(value);
+        else if (key === 'restart') config.restart = String(value);
+        else if (key === 'registry_identity_token') config.registryIdentityToken = String(value);
         break;
       case 'commands':
         if (key === 'workdir') config.workdir = String(value);
@@ -514,7 +585,6 @@ export function configToCreateRequest(config: VmConfig): Record<string, unknown>
   if (config.overlay !== undefined) req.overlayGb = config.overlay;
   if (config.net !== undefined) req.network = config.net;
   if (config.gpu !== undefined) req.gpu = config.gpu;
-  if (config.gpuVram !== undefined) req.gpuVramMb = config.gpuVram;
   if (config.ports && config.ports.length > 0) req.ports = config.ports;
   if (config.volumes && config.volumes.length > 0) {
     req.mounts = config.volumes.map((v) => ({
@@ -524,15 +594,30 @@ export function configToCreateRequest(config: VmConfig): Record<string, unknown>
     }));
   }
   if (config.env && Object.keys(config.env).length > 0) req.env = config.env;
+  if (config.secrets && config.secrets.length > 0) req.secrets = config.secrets;
+  if (config.dockerSocket !== undefined) req.dockerSocket = config.dockerSocket;
+  if (config.restart) req.restart = config.restart;
+  if (config.registryIdentityToken) req.registryIdentityToken = config.registryIdentityToken;
   if (config.workdir) req.workdir = config.workdir;
-  if (config.init && config.init.length > 0) req.init = config.init;
-  if (config.sshAgent !== undefined) req.sshAgent = config.sshAgent;
-  if (config.allowHosts && config.allowHosts.length > 0) req.allowHosts = config.allowHosts;
-  if (config.allowCidrs && config.allowCidrs.length > 0) req.allowCidrs = config.allowCidrs;
+  const dns = config.dns ?? defaultGuestDns();
+  if (dns) req.dns = dns;
+  if (config.allowHosts && config.allowHosts.length > 0) req.allowedHosts = config.allowHosts;
+  if (config.allowCidrs && config.allowCidrs.length > 0) req.allowedCidrs = config.allowCidrs;
   if (config.entrypoint) req.entrypoint = config.entrypoint;
   if (config.cmd) req.cmd = config.cmd;
 
   return req;
+}
+
+// Hetzner resolvers; Hetzner's external firewall blocks public DNS like the
+// 1.1.1.1 smolvm compiles in. SMOLVM_GUEST_DNS overrides, 'none' opts out.
+const DEFAULT_GUEST_DNS = '185.12.64.1';
+
+export function defaultGuestDns(): string | undefined {
+  const raw = process.env.SMOLVM_GUEST_DNS?.trim();
+  if (raw === undefined || raw === '') return DEFAULT_GUEST_DNS;
+  if (raw.toLowerCase() === 'none') return undefined;
+  return raw;
 }
 
 /** Convert VmConfig to SmolVM update request body (only live-update fields). */
@@ -556,8 +641,8 @@ export function configToUpdateRequest(config: VmConfig): Record<string, unknown>
   }
   if (config.env && Object.keys(config.env).length > 0) req.env = config.env;
   if (config.workdir) req.workdir = config.workdir;
-  if (config.allowHosts && config.allowHosts.length > 0) req.allowHosts = config.allowHosts;
-  if (config.allowCidrs && config.allowCidrs.length > 0) req.allowCidrs = config.allowCidrs;
+  if (config.allowHosts && config.allowHosts.length > 0) req.allowedHosts = config.allowHosts;
+  if (config.allowCidrs && config.allowCidrs.length > 0) req.allowedCidrs = config.allowCidrs;
 
   return req;
 }
@@ -619,12 +704,17 @@ export function machineResponseToConfig(machine: Record<string, unknown>): VmCon
     config.init = machine.init.map(String);
   }
 
-  if (Array.isArray(machine.allowHosts)) {
+  if (Array.isArray(machine.allowedHosts)) {
+    config.allowHosts = machine.allowedHosts.map(String);
+  } else if (Array.isArray(machine.allowHosts)) {
     config.allowHosts = machine.allowHosts.map(String);
   }
-  if (Array.isArray(machine.allowCidrs)) {
+  if (Array.isArray(machine.allowedCidrs)) {
+    config.allowCidrs = machine.allowedCidrs.map(String);
+  } else if (Array.isArray(machine.allowCidrs)) {
     config.allowCidrs = machine.allowCidrs.map(String);
   }
+  if (typeof machine.dns === 'string') config.dns = machine.dns;
 
   return config;
 }
@@ -648,14 +738,19 @@ export function configForCopy(source: VmConfig, newName: string): VmConfig {
   if (source.cmd) copy.cmd = source.cmd;
   if (source.workdir) copy.workdir = source.workdir;
   if (source.sshAgent !== undefined) copy.sshAgent = source.sshAgent;
+  if (source.dockerSocket !== undefined) copy.dockerSocket = source.dockerSocket;
+  if (source.restart) copy.restart = source.restart;
+  if (source.registryIdentityToken) copy.registryIdentityToken = source.registryIdentityToken;
 
   // Deep copy arrays and objects
   if (source.ports) copy.ports = source.ports.map((p) => ({ ...p }));
   if (source.volumes) copy.volumes = source.volumes.map((v) => ({ ...v }));
   if (source.env) copy.env = { ...source.env };
+  if (source.secrets) copy.secrets = source.secrets.map((s) => ({ ...s }));
   if (source.init) copy.init = [...source.init];
   if (source.allowHosts) copy.allowHosts = [...source.allowHosts];
   if (source.allowCidrs) copy.allowCidrs = [...source.allowCidrs];
+  if (source.dns) copy.dns = source.dns;
 
   return copy;
 }
