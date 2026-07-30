@@ -333,12 +333,14 @@
     }
     if (
       config.net ||
+      config.dns ||
       (config.ports && config.ports.length > 0) ||
       (config.allowHosts && config.allowHosts.length > 0) ||
       (config.allowCidrs && config.allowCidrs.length > 0)
     ) {
       lines.push('[network]');
       if (config.net !== undefined) lines.push(`net = ${config.net ? 'true' : 'false'}`);
+      if (config.dns) lines.push(`dns = "${config.dns}"`);
       if (config.ports && config.ports.length > 0)
         lines.push(`ports = [${config.ports.map((p) => `"${p.host}:${p.guest}"`).join(', ')}]`);
       if (config.allowHosts && config.allowHosts.length > 0)
@@ -734,6 +736,26 @@
       </button>
       {#if expandedSections.network}
         <div class="border-t border-white/5 px-5 py-4">
+          <!-- Guest DNS -->
+          <div class="mb-4">
+            <label
+              for="vm-dns"
+              class="mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400"
+            >
+              Guest DNS (IPv4)
+            </label>
+            <input
+              id="vm-dns"
+              type="text"
+              bind:value={config.dns}
+              placeholder="185.12.64.1"
+              class="w-full max-w-xs rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none"
+            />
+            <p class="mt-1 text-xs text-slate-500">
+              Resolver IPv4 forwarded into the guest. Leave blank for the Hetzner default.
+            </p>
+          </div>
+
           <!-- Port mappings -->
           <div class="mb-4">
             <span class="mb-2 block text-xs font-medium uppercase tracking-wider text-slate-400">
