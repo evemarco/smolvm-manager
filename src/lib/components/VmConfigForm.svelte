@@ -23,10 +23,13 @@
     ImagePickerSelection
   } from '$lib/types';
 
+  type SaveIntent = 'save' | 'restart' | 'recreate';
+
   let {
     mode = 'create',
     initialConfig,
     existingMachineName,
+    machineRunning = false,
     csrfToken,
     onSave,
     onCancel
@@ -34,8 +37,9 @@
     mode?: VmFormMode;
     initialConfig?: VmConfig;
     existingMachineName?: string;
+    machineRunning?: boolean;
     csrfToken: string;
-    onSave?: (config: VmConfig) => void;
+    onSave?: (config: VmConfig, intent?: SaveIntent) => Promise<void> | void;
     onCancel?: () => void;
   } = $props();
 
@@ -62,6 +66,7 @@
   // Confirmation modal for recreate
   let recreateConfirmOpen = $state(false);
   let recreateDiffs: ConfigDiff[] = $state([]);
+  let restartConfirmOpen = $state(false);
 
   // Repeated field helpers
   let newPortHost = $state('');
@@ -265,21 +270,35 @@
         recreateConfirmOpen = true;
         return;
       }
+      if (machineRunning && diffs.length > 0) {
+        restartConfirmOpen = true;
+        return;
+      }
     }
 
     saving = true;
     try {
-      onSave?.(config);
+      await onSave?.(config, 'save');
     } finally {
       saving = false;
     }
   }
 
-  function confirmRecreate() {
+  async function confirmRecreate() {
     recreateConfirmOpen = false;
     saving = true;
     try {
-      onSave?.(config);
+      await onSave?.(config, 'recreate');
+    } finally {
+      saving = false;
+    }
+  }
+
+  async function confirmRestart() {
+    restartConfirmOpen = false;
+    saving = true;
+    try {
+      await onSave?.(config, 'restart');
     } finally {
       saving = false;
     }
@@ -400,6 +419,16 @@
   onCancel={() => (recreateConfirmOpen = false)}
 />
 
+<ConfirmationModal
+  bind:open={restartConfirmOpen}
+  title="Restart Required"
+  message="This VM is currently running. Saving these changes will briefly stop the VM, apply the new configuration, and start it again."
+  confirmLabel="Save & Restart"
+  confirmVariant="warning"
+  onConfirm={confirmRestart}
+  onCancel={() => (restartConfirmOpen = false)}
+/>
+
 <div class="flex flex-col gap-6">
   <!-- Header -->
   <div class="flex items-center justify-between">
@@ -422,6 +451,11 @@
               ? 'This will delete and recreate the VM.'
               : `Editing "${existingMachineName ?? config.name}".`}
       </p>
+      {#if mode === 'edit' && machineRunning}
+        <p class="mt-2 flex items-center gap-1.5 text-sm text-amber-300">
+          <AlertTriangle size={14} /> Saving changes will restart this running VM.
+        </p>
+      {/if}
     </div>
     <div class="flex items-center gap-2">
       <button
@@ -1202,7 +1236,9 @@
           ? 'Create Copy'
           : mode === 'recreate'
             ? 'Recreate VM'
-            : 'Save Changes'}
+            : machineRunning
+              ? 'Save & Restart'
+              : 'Save Changes'}
     </button>
   </div>
 </div>

@@ -72,6 +72,9 @@ async function mockEmptyMachines(page: Page) {
 }
 
 async function mockMachines(page: Page, machines: Array<Record<string, unknown>>) {
+  await page.route('**/api/smolvm/machines/stream', async () => {
+    await new Promise<void>(() => undefined);
+  });
   await page.route('**/api/smolvm/machines', async (route) => {
     await route.fulfill({
       status: 200,
@@ -277,6 +280,36 @@ net = true`;
     await page.getByRole('button', { name: 'Edit Configuration' }).click();
 
     await expect(page.getByText('Editing')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save Changes' })).toBeVisible();
+  });
+
+  test('shows Save & Restart confirmation when editing a running VM', async ({ page }) => {
+    await mockMachines(page, [
+      {
+        name: 'running-vm',
+        status: 'running',
+        state: 'running',
+        cpus: 2,
+        memoryMb: 512,
+        env: { MODE: 'old' }
+      }
+    ]);
+
+    await loginAsAdmin(page);
+    await expect(page.getByText('running-vm')).toBeVisible();
+    await page.getByRole('button', { name: 'View details for running-vm' }).click();
+    await page.getByRole('tab', { name: 'Config' }).click();
+    await page.getByRole('button', { name: 'Edit Configuration' }).click();
+
+    await expect(page.getByRole('button', { name: 'Save & Restart' })).toBeVisible();
+    await page.getByRole('button', { name: 'Environment Variables' }).click();
+    await page.getByPlaceholder('KEY').fill('NEW_SETTING');
+    await page.getByPlaceholder('value').fill('enabled');
+    await page.getByRole('button', { name: 'Add' }).first().click();
+    await page.getByRole('button', { name: 'Save & Restart' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Restart Required' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save & Restart', exact: true })).toHaveCount(2);
   });
 
   test('copy VM config creates new name', async ({ page }) => {

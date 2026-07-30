@@ -94,6 +94,7 @@
   let vmFormMode: VmFormMode = $state('create');
   let vmFormInitialConfig: VmConfig | undefined = $state(undefined);
   let vmFormExistingName: string | undefined = $state(undefined);
+  let vmFormMachineRunning = $state(false);
 
   let csrfToken = $derived(data.csrfToken ?? '');
 
@@ -266,11 +267,13 @@
     vmFormMode = 'create';
     vmFormInitialConfig = undefined;
     vmFormExistingName = undefined;
+    vmFormMachineRunning = false;
     vmFormOpen = true;
   }
 
   function useSavedConfig(saved: SavedVmConfig) {
     vmFormMode = 'create';
+    vmFormMachineRunning = false;
     try {
       const parsed = JSON.parse(saved.configJson);
       vmFormInitialConfig = { name: `${saved.machineName}-from-template`, ...parsed };
@@ -284,6 +287,7 @@
   function openEditVm(machine: SmolVmMachine) {
     vmFormMode = 'edit';
     vmFormExistingName = machine.name;
+    vmFormMachineRunning = machine.state === 'running' || machine.status === 'running';
     // Convert machine response to config
     const config: VmConfig = { name: machine.name };
     if (typeof machine.cpus === 'number') config.cpus = machine.cpus;
@@ -333,6 +337,7 @@
   function openCopyVm(machine: SmolVmMachine) {
     vmFormMode = 'copy';
     vmFormExistingName = machine.name;
+    vmFormMachineRunning = false;
     const config: VmConfig = { name: `${machine.name}-copy` };
     if (typeof machine.cpus === 'number') config.cpus = machine.cpus;
     if (typeof machine.memoryMb === 'number') config.memory = machine.memoryMb;
@@ -386,7 +391,10 @@
     selectedMachine = machine;
   }
 
-  async function handleVmFormSave(config: VmConfig) {
+  async function handleVmFormSave(
+    config: VmConfig,
+    intent: 'save' | 'restart' | 'recreate' = 'save'
+  ) {
     try {
       if (vmFormMode === 'create' || vmFormMode === 'copy') {
         const response = await fetch('/api/smolvm/machines/create', {
@@ -402,7 +410,7 @@
           throw new Error(body?.message ?? body?.error ?? `Create failed (${response.status})`);
         }
         toasts.push(`VM "${config.name}" created`, 'success');
-      } else if (vmFormMode === 'edit') {
+      } else if (vmFormMode === 'edit' && intent !== 'recreate') {
         const name = vmFormExistingName ?? config.name;
         const response = await fetch(`/api/smolvm/machines/${encodeURIComponent(name)}/update`, {
           method: 'PATCH',
@@ -412,17 +420,19 @@
           },
           body: JSON.stringify(config)
         });
+        const body = await response.json().catch(() => null);
         if (response.status === 409) {
           // Recreate required - handled by the form's confirmation modal
-          const body = await response.json();
-          throw new Error(body.message ?? 'Recreate required');
+          throw new Error(body?.message ?? 'Recreate required');
         }
         if (!response.ok) {
-          const body = await response.json().catch(() => null);
           throw new Error(body?.message ?? body?.error ?? `Update failed (${response.status})`);
         }
-        toasts.push(`VM "${name}" updated`, 'success');
-      } else if (vmFormMode === 'recreate') {
+        toasts.push(
+          body?.restartPerformed ? `VM "${name}" updated and restarted` : `VM "${name}" updated`,
+          'success'
+        );
+      } else if (vmFormMode === 'recreate' || intent === 'recreate') {
         const name = vmFormExistingName ?? config.name;
         const response = await fetch(`/api/smolvm/machines/${encodeURIComponent(name)}/recreate`, {
           method: 'POST',
@@ -608,6 +618,7 @@
     onSelect={(selection: ImagePickerSelection) => {
       toasts.push(`Selected image: ${selection.fullName}`, 'success');
       vmFormMode = 'create';
+      vmFormMachineRunning = false;
       vmFormInitialConfig = {
         name: '',
         cpus: 4,
@@ -643,6 +654,7 @@
           mode={vmFormMode}
           initialConfig={vmFormInitialConfig}
           existingMachineName={vmFormExistingName}
+          machineRunning={vmFormMachineRunning}
           {csrfToken}
           onSave={handleVmFormSave}
           onCancel={() => (vmFormOpen = false)}
