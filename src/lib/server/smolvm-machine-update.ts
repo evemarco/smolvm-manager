@@ -16,6 +16,8 @@ export type SmolVmMachineUpdatePlan = {
   readonly unsupportedLiveUpdate: readonly ConfigDiff[];
 };
 
+const IGNORABLE_UNKNOWN_ORIGINAL_FIELDS = new Set<keyof VmConfig>(['image', 'tag']);
+
 const UPDATE_SUPPORTED_FIELDS = new Set<keyof VmConfig>([
   'cpus',
   'memory',
@@ -87,10 +89,17 @@ function appendEnvUpdateArgs(args: string[], original: VmConfig, updated: VmConf
   }
 }
 
-export function buildMachineUpdatePlan(machine: Record<string, unknown>, updated: VmConfig): SmolVmMachineUpdatePlan {
+export function buildMachineUpdatePlan(
+  machine: Record<string, unknown>,
+  updated: VmConfig
+): SmolVmMachineUpdatePlan {
   const original = machineResponseToConfig(machine);
   const diffs = diffConfigs(original, updated);
-  const recreateRequired = diffs.filter((diff) => diff.requiresRecreate);
+  const recreateRequired = diffs.filter(
+    (diff) =>
+      diff.requiresRecreate &&
+      !(diff.oldValue === undefined && IGNORABLE_UNKNOWN_ORIGINAL_FIELDS.has(diff.field))
+  );
   const unsupportedLiveUpdate = diffs.filter(
     (diff) => !diff.requiresRecreate && !UPDATE_SUPPORTED_FIELDS.has(diff.field)
   );

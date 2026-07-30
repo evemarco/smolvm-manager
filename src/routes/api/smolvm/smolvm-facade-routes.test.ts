@@ -32,11 +32,7 @@ import * as tomlValidateRoute from './toml-validate/+server';
 import * as tomlGenerateRoute from './toml-generate/+server';
 import { GET as getManagerUpdate } from './update/+server';
 import { PATCH as patchMachineUpdate } from './machines/[name]/update/+server';
-import {
-  SMOLVM_ERROR_CODES,
-  SmolVmError,
-  type SmolVmClient
-} from '$lib/server/smolvm-client';
+import { SMOLVM_ERROR_CODES, SmolVmError, type SmolVmClient } from '$lib/server/smolvm-client';
 
 const admin = { id: 'admin-1', email: 'admin@example.com', name: null };
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -1053,6 +1049,70 @@ describe('SmolVM facade routes', () => {
     ]);
   });
 
+  test('machine update route ignores submitted image fields when SmolVM omits them during live port update', async () => {
+    const operations: string[] = [];
+    const commands: string[][] = [];
+    const client = createMachineUpdateClient(async () => ({
+      name: 'running-vm',
+      state: 'running',
+      ports: [{ host: 8080, guest: 80 }],
+      cpus: 2,
+      memoryMb: 512
+    }));
+    client.stopMachine = async () => {
+      operations.push('stop');
+      return {};
+    };
+    client.startMachine = async () => {
+      operations.push('start');
+      return {};
+    };
+
+    const response = await patchMachineUpdate(
+      {
+        locals: adminLocals(),
+        params: { name: 'running-vm' },
+        request: jsonRequest('http://local/api/smolvm/machines/running-vm/update', {
+          name: 'running-vm',
+          image: 'docker.io/osminogin/tor-simple',
+          tag: 'latest',
+          cpus: 2,
+          memory: 512,
+          ports: [
+            { host: 8080, guest: 80 },
+            { host: 9090, guest: 90 }
+          ]
+        })
+      } as Parameters<typeof patchMachineUpdate>[0],
+      {
+        client,
+        runner: async (command) => {
+          operations.push('update');
+          commands.push([...command]);
+        }
+      }
+    );
+
+    expect(response.status).toBe(200);
+    expect(operations).toEqual(['stop', 'update', 'start']);
+    expect(commands).toEqual([
+      [
+        'smolvm',
+        'machine',
+        'update',
+        '--name',
+        'running-vm',
+        '--cpus',
+        '2',
+        '--mem',
+        '512',
+        '--port',
+        '9090:90'
+      ]
+    ]);
+    expect(await response.json()).toMatchObject({ restartPerformed: true });
+  });
+
   test('machine update route restarts a running machine around the update', async () => {
     const operations: string[] = [];
     const client = createMachineUpdateClient(async () => ({
@@ -1200,8 +1260,7 @@ describe('SmolVM facade routes', () => {
       feature: 'machineUpdate',
       code: 'SMOLVM_RECREATE_REQUIRED',
       machine: 'vm one',
-      message:
-        'These configuration fields require VM recreation through the recreate endpoint.',
+      message: 'These configuration fields require VM recreation through the recreate endpoint.',
       fields: ['image', 'tag'],
       recreateEndpoint: '/api/smolvm/machines/vm%20one/recreate'
     });
