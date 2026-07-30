@@ -79,6 +79,7 @@ The builds require native development packages beyond Bun. Follow [docs/SOURCE_B
 | Variable              | Default                      | Description                                                 |
 | --------------------- | ---------------------------- | ----------------------------------------------------------- |
 | `SMOLVM_SOCKET`       | `/tmp/smolvm.sock`           | Unix socket path for SmolVM API                             |
+| `SMOLVM_PUBLISH_ADDR` | `127.0.0.1`                  | Global IPv4 bind address for all published VM TCP ports     |
 | `MANAGER_HOST`        | `0.0.0.0`                    | Manager bind address                                        |
 | `MANAGER_PORT`        | `3000` (dev) / `4173` (prod) | Manager bind port                                           |
 | `PYLON_URL`           | `http://127.0.0.1:3001`      | Pylon HTTP endpoint                                         |
