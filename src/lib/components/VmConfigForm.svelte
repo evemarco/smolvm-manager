@@ -15,6 +15,7 @@
   import ConfirmationModal from '$lib/components/ConfirmationModal.svelte';
   import ImagePicker from '$lib/components/ImagePicker.svelte';
   import { detectSensitiveHostMounts } from '$lib/sensitive-mounts';
+  import { fieldChangeRequiresRecreate } from '$lib/vm-update-policy';
   import type {
     VmConfig,
     VmVolumeMount,
@@ -42,8 +43,6 @@
     onSave?: (config: VmConfig, intent?: SaveIntent) => Promise<void> | void;
     onCancel?: () => void;
   } = $props();
-
-  const RECREATE_FIELDS = new Set(['image', 'tag', 'from', 'entrypoint', 'cmd']);
 
   // Form state — intentional: capture initialConfig once at mount, not reactively
   // svelte-ignore state_referenced_locally
@@ -249,7 +248,7 @@
 
     const submissionConfig = getSubmissionConfig();
 
-    // For edit mode, check if recreate-required fields changed
+    // For edit mode, check if changed fields cannot be live-updated by SmolVM
     if (mode === 'edit' && initialConfig) {
       const diffs: ConfigDiff[] = [];
       const allKeys = new Set<string>([
@@ -264,7 +263,7 @@
             field: key,
             oldValue: oldVal,
             newValue: newVal,
-            requiresRecreate: RECREATE_FIELDS.has(key)
+            requiresRecreate: fieldChangeRequiresRecreate(key)
           });
         }
       }
@@ -423,9 +422,9 @@
 <ConfirmationModal
   bind:open={recreateConfirmOpen}
   title="Recreate Required"
-  message="The following changes require VM recreation (the VM will be deleted and recreated with the new config): {recreateDiffs
+  message="The following changes cannot be applied to an existing VM and require recreation: {recreateDiffs
     .map((d) => d.field)
-    .join(', ')}. This is a destructive operation. Proceed?"
+    .join(', ')}. The VM will be deleted and recreated with the new config — its disk state (overlay) will be lost; mounted volumes are preserved. Proceed?"
   confirmLabel="Recreate VM"
   confirmVariant="danger"
   onConfirm={confirmRecreate}

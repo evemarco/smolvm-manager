@@ -8,6 +8,7 @@ import {
   type VmPortMapping,
   type VmVolumeMount
 } from '$lib/server/vm-config';
+import { LIVE_UPDATABLE_FIELDS } from '$lib/vm-update-policy';
 
 export type SmolVmMachineUpdateRunner = (command: readonly string[]) => Promise<void>;
 
@@ -19,19 +20,6 @@ export type SmolVmMachineUpdatePlan = {
 
 const IGNORABLE_UNKNOWN_ORIGINAL_FIELDS = new Set<keyof VmConfig>(['image', 'tag']);
 const IGNORABLE_UNKNOWN_FALSE_FIELDS = new Set<keyof VmConfig>(['sshAgent']);
-
-const UPDATE_SUPPORTED_FIELDS = new Set<keyof VmConfig>([
-  'cpus',
-  'memory',
-  'storage',
-  'overlay',
-  'net',
-  'gpu',
-  'ports',
-  'volumes',
-  'env',
-  'workdir'
-]);
 
 function portKey(port: VmPortMapping): string {
   return `${port.host}:${port.guest}`;
@@ -74,7 +62,7 @@ function appendVolumeUpdateArgs(args: string[], original: VmConfig, updated: VmC
   for (const [key, volume] of oldVolumes) {
     if (!newVolumes.has(key)) args.push('--remove-volume', volumeRemovalKey(volume));
   }
-  for (const [key, volume] of newVolumes) {
+  for (const [key] of newVolumes) {
     if (!oldVolumes.has(key)) args.push('--volume', key);
   }
 }
@@ -105,7 +93,7 @@ export function buildMachineUpdatePlan(
   const unsupportedLiveUpdate = diffs.filter(
     (diff) =>
       !diff.requiresRecreate &&
-      !UPDATE_SUPPORTED_FIELDS.has(diff.field) &&
+      !LIVE_UPDATABLE_FIELDS.has(diff.field) &&
       !(
         diff.oldValue === undefined &&
         diff.newValue === false &&

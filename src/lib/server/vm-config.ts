@@ -69,7 +69,8 @@ export type VmConfig = {
 };
 
 /** Fields that cannot be changed via update — require VM recreation. */
-export const RECREATE_REQUIRED_FIELDS = new Set(['image', 'tag', 'from', 'entrypoint', 'cmd']);
+export { RECREATE_REQUIRED_FIELDS } from '$lib/vm-update-policy';
+import { RECREATE_REQUIRED_FIELDS } from '$lib/vm-update-policy';
 
 export type VmConfigField = keyof VmConfig;
 
