@@ -648,6 +648,9 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
 
     getReadyz() {
       return callSmolVm(socketPath, transport, { method: 'GET', path: '/readyz' }, (value) => {
+        // SmolVM 1.7 answers readiness with an empty 200 body; tolerate both
+        // that and a JSON payload with an explicit status field.
+        if (value === null) return { status: 'ready' };
         const object = assertObject(value, 'SmolVM returned an invalid readiness payload.');
         if (typeof object.status !== 'string') {
           throw new SmolVmError(

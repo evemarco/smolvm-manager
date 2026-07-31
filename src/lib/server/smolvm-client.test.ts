@@ -357,6 +357,15 @@ test('smolvm-client getReadyz constructs GET /readyz', async () => {
   ]);
 });
 
+test('smolvm-client getReadyz treats an empty 200 body as ready', async () => {
+  const { transport } = createCapturingTransport('');
+  const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
+
+  const readyz = await client.getReadyz();
+
+  expect(readyz).toEqual({ status: 'ready' });
+});
+
 test('smolvm-client drainNode constructs POST /drain', async () => {
   const { calls, transport } = createCapturingTransport({ drained: true });
   const client = createSmolVmClient({ socketPath: '/tmp/test.sock', transport });
