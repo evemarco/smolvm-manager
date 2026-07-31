@@ -133,9 +133,15 @@ function getOptionalEnv(name: string): string | undefined {
 export const runSmolVmMachineUpdate: SmolVmMachineUpdateRunner = async (command) => {
   const updateHome = getOptionalEnv('SMOLVM_UPDATE_HOME');
   const updateCwd = getOptionalEnv('SMOLVM_UPDATE_CWD');
-  const proc = Bun.spawn([...command], {
+  const updateSudo = getOptionalEnv('SMOLVM_UPDATE_SUDO') === 'true';
+  // Resource changes (cpus/mem/storage/overlay/net) make the CLI read per-VM
+  // cache dirs owned by a mapped uid with mode 700 — root via sudo is required.
+  const argv = updateSudo
+    ? ['sudo', '-n', ...(updateHome ? [`HOME=${updateHome}`] : []), ...command]
+    : [...command];
+  const proc = Bun.spawn(argv, {
     ...(updateCwd ? { cwd: updateCwd } : {}),
-    ...(updateHome ? { env: { ...process.env, HOME: updateHome } } : {}),
+    ...(updateHome && !updateSudo ? { env: { ...process.env, HOME: updateHome } } : {}),
     stdout: 'pipe',
     stderr: 'pipe'
   });
@@ -150,7 +156,7 @@ export const runSmolVmMachineUpdate: SmolVmMachineUpdateRunner = async (command)
   const detail = stderr.trim() || stdout.trim() || `smolvm exited with status ${exitCode}`;
   throw new SmolVmError(SMOLVM_ERROR_CODES.REQUEST_FAILED, detail, exitCode === 127 ? 503 : 502, {
     exitCode,
-    command: command.join(' '),
+    command: argv.join(' '),
     ...(updateCwd ? { cwd: updateCwd } : {}),
     ...(updateHome ? { home: updateHome } : {})
   });
