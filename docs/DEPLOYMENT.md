@@ -42,7 +42,7 @@ This file documents a complete production deployment layout for [SmolVM Manager]
    sudo chown -R smolvm-manager:smolvm-manager /var/lib/smolvm-manager
    ```
 
-7. Copy `docs/smolvm-manager.env` to `/etc/smolvm-manager/env` and edit values. With Pylon 0.3.333 or later you must set `PYLON_ADMIN_TOKEN` (generate one with `openssl rand -hex 32`): Pylon default-denies anonymous entity access and the manager presents this token on its server-side calls. Set `SMOLVM_COMMAND`, `SMOLVM_UPDATE_HOME`, and `SMOLVM_UPDATE_CWD` to match the SmolVM distribution and state directory used by `smolvm-serve.service` if you want live config updates such as adding or removing published ports.
+7. Copy `docs/smolvm-manager.env` to `/etc/smolvm-manager/env` and edit values. With Pylon 0.3.333 or later you must set `PYLON_ADMIN_TOKEN` (generate one with `openssl rand -hex 32`): Pylon default-denies anonymous entity access and the manager presents this token on its server-side calls. Set `SMOLVM_COMMAND`, `SMOLVM_UPDATE_HOME`, `SMOLVM_UPDATE_CWD` and `SMOLVM_UPDATE_SUDO` to match the SmolVM distribution and state directory used by `smolvm-serve.service` if you want live config updates such as adding or removing published ports, then install the scoped sudoers rule below.
 8. Copy `docs/smolvm-manager.service` and `docs/smolvm-serve.service` to `/etc/systemd/system/`. The SmolVM unit carries `UMask=0000` so the manager's unprivileged user may connect to `/tmp/smolvm.sock` (a `022` umask creates it `srwxr-xr-x`, which rejects non-root clients).
 9. Enable and start the service: `sudo systemctl enable --now smolvm-manager`.
 10. Optionally configure a reverse proxy using the examples in `docs/reverse-proxy/`. Whichever way the manager is exposed, keep Pylon's HTTP port (from `PYLON_URL`, default `4321`) reachable from browsers: the dashboard's live sync (`/api/sync/ws`, `/api/fn/*`) connects to it directly, authenticated by the host-scoped `pylon_session` cookie.
@@ -54,14 +54,18 @@ The manager unit runs as the dedicated `smolvm-manager` user with `ProtectSystem
 - `/root` and `/home` do not exist for the process. This is why `bun` and `pylon` must live in `/usr/local/bin` rather than under `/root`.
 - The whole filesystem is read-only except `/var/lib/smolvm-manager`, which covers the app data, Pylon databases, and Vite's temporary config bundle.
 - Most lifecycle operations only talk to SmolVM through `/tmp/smolvm.sock`. Live config updates are different: SmolVM 1.7 exposes machine update support through the CLI, so the manager runs `SMOLVM_COMMAND machine update` with `HOME=$SMOLVM_UPDATE_HOME` and `cwd=$SMOLVM_UPDATE_CWD`.
-- The SmolVM update CLI must be able to read its distribution files and write SmolVM's server store. With the example layout, grant the manager user access only to the server store directory instead of broadening the whole sandbox:
+- Port-only updates only touch SmolVM's SQLite store, but resource updates (`--cpus`, `--mem`, `--storage`, `--overlay`, `--net`) make the CLI read per-VM cache dirs under `/var/lib/smolvm/.cache/smolvm/vms/<id>` that are owned by a mapped uid with mode 700. Filesystem ACLs cannot cover this reliably (new VM dirs are created per machine with a mask that strips named-user entries), so the manager elevates the update command through a narrowly scoped sudoers rule instead — this is why the unit does not set `NoNewPrivileges`:
 
   ```sh
-  sudo setfacl -m u:smolvm-manager:rwx /var/lib/smolvm/.local/share/smolvm/server
-  sudo setfacl -m u:smolvm-manager:rw /var/lib/smolvm/.local/share/smolvm/server/smolvm.db
+  cat <<'EOF' > /etc/sudoers.d/smolvm-manager
+  smolvm-manager ALL=(root) NOPASSWD: SETENV: /opt/smolvm/smolvm machine update *
+  EOF
+  chmod 0440 /etc/sudoers.d/smolvm-manager
+  visudo -c
   ```
 
-  If the SmolVM store uses SQLite sidecar files (`smolvm.db-wal` or `smolvm.db-shm`), grant the same user write access to those files too. The shipped unit also adds `/var/lib/smolvm/.local/share/smolvm/server` to `ReadWritePaths`; keep that path as narrow as possible.
+  The rule only allows `smolvm machine update` with an environment override (used for `HOME`); arguments are passed by the manager as an exec array, never through a shell.
+- The shipped unit keeps `ReadWritePaths` entries for `/var/lib/smolvm/.local/share/smolvm/server` and `/var/lib/smolvm/.cache/smolvm`: `ProtectSystem=strict` applies to the whole unit mount namespace, including the root-elevated child, so both paths must stay writable from the unit.
 
 Running as `root` instead is possible: set `User=root` and `Group=root` in `smolvm-manager.service`, keep the working directory anywhere you like, and drop `ProtectHome=true` if the app must read `/root`. You lose the sandbox — a manager compromise is then a root compromise — so prefer the dedicated user on any host that matters.
 
