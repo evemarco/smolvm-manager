@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { SmolVmError, SMOLVM_ERROR_CODES } from '$lib/server/smolvm-client';
 import {
   diffConfigs,
@@ -139,17 +140,37 @@ export const runSmolVmMachineUpdate: SmolVmMachineUpdateRunner = async (command)
   const argv = updateSudo
     ? ['sudo', '-n', ...(updateHome ? [`HOME=${updateHome}`] : []), ...command]
     : [...command];
-  const proc = Bun.spawn(argv, {
-    ...(updateCwd ? { cwd: updateCwd } : {}),
-    ...(updateHome && !updateSudo ? { env: { ...process.env, HOME: updateHome } } : {}),
-    stdout: 'pipe',
-    stderr: 'pipe'
+  const [program, ...args] = argv as [string, ...string[]];
+  // node:child_process — the production server runs vite preview under Node,
+  // so Bun-only APIs would throw here and surface as a generic 500.
+  const [stdout, stderr, exitCode] = await new Promise<[string, string, number]>(
+    (resolve, reject) => {
+      const proc = spawn(program, args, {
+        ...(updateCwd ? { cwd: updateCwd } : {}),
+        env: updateHome && !updateSudo ? { ...process.env, HOME: updateHome } : process.env,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
+      proc.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
+      proc.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+      proc.on('error', reject);
+      proc.on('close', (code) =>
+        resolve([
+          Buffer.concat(stdoutChunks).toString('utf8'),
+          Buffer.concat(stderrChunks).toString('utf8'),
+          code ?? 1
+        ])
+      );
+    }
+  ).catch((error: unknown) => {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new SmolVmError(SMOLVM_ERROR_CODES.REQUEST_FAILED, detail, 503, {
+      command: argv.join(' '),
+      ...(updateCwd ? { cwd: updateCwd } : {}),
+      ...(updateHome ? { home: updateHome } : {})
+    });
   });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited
-  ]);
 
   if (exitCode === 0) return;
 
