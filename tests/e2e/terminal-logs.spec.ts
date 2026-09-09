@@ -267,8 +267,6 @@ test.describe('logs and terminal tabs', () => {
     await page.getByRole('button', { name: 'View details for stream-vm' }).click();
     await page.getByRole('tab', { name: 'Terminal' }).click();
     await expect(page.locator('.xterm-rows')).toContainText('session:stream-vm');
-    await expect
-      .poll(() => page.evaluate(() => window.__terminalConnections.length))
-      .toBe(2);
+    await expect.poll(() => page.evaluate(() => window.__terminalConnections.length)).toBe(2);
   });
 });

@@ -82,7 +82,9 @@
     >
       <AlertCircle size={16} />
       {session.error}
-      <button class="ml-auto text-cyan-200 underline" onclick={() => session.open()}>Reconnect</button>
+      <button class="ml-auto text-cyan-200 underline" onclick={() => session.open()}
+        >Reconnect</button
+      >
     </div>
   {/if}
 

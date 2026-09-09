@@ -424,7 +424,9 @@
   title="Recreate Required"
   message="The following changes cannot be applied to an existing VM and require recreation: {recreateDiffs
     .map((d) => d.field)
-    .join(', ')}. The VM will be deleted and recreated with the new config — its disk state (overlay) will be lost; mounted volumes are preserved. Proceed?"
+    .join(
+      ', '
+    )}. The VM will be deleted and recreated with the new config — its disk state (overlay) will be lost; mounted volumes are preserved. Proceed?"
   confirmLabel="Recreate VM"
   confirmVariant="danger"
   onConfirm={confirmRecreate}

@@ -1,8 +1,7 @@
 import { browser } from '$app/environment';
 import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
-import { SvelteMap } from 'svelte/reactivity';
-
+import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity';
 declare global {
   interface Window {
     __xtermTerm?: Terminal;
@@ -178,7 +177,7 @@ export class TerminalSession {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const cols = this.#renderer?.term.cols ?? 80;
     const rows = this.#renderer?.term.rows ?? 24;
-    const params = new URLSearchParams({ cols: String(cols), rows: String(rows) });
+    const params = new SvelteURLSearchParams({ cols: String(cols), rows: String(rows) });
     return `${protocol}//${window.location.host}/api/smolvm/machines/${encodeURIComponent(this.machineName)}/terminal/ws?${params.toString()}`;
   }
 
@@ -200,7 +199,12 @@ export class TerminalSession {
     }
     try {
       const parsed: unknown = JSON.parse(data);
-      if (typeof parsed === 'object' && parsed !== null && 'type' in parsed && parsed.type === 'exit') {
+      if (
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        'type' in parsed &&
+        parsed.type === 'exit'
+      ) {
         const code = 'code' in parsed && typeof parsed.code === 'number' ? parsed.code : 0;
         this.exitCode = code;
         term.write(`\r\n[Process exited with code ${code}]\r\n`);

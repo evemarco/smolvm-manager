@@ -7,7 +7,18 @@ import {
 
 describe('vm-update-policy', () => {
   it('marks all smolvm machine update fields as live-updatable', () => {
-    for (const field of ['cpus', 'memory', 'storage', 'overlay', 'net', 'gpu', 'ports', 'volumes', 'env', 'workdir']) {
+    for (const field of [
+      'cpus',
+      'memory',
+      'storage',
+      'overlay',
+      'net',
+      'gpu',
+      'ports',
+      'volumes',
+      'env',
+      'workdir'
+    ]) {
       expect(LIVE_UPDATABLE_FIELDS.has(field)).toBe(true);
       expect(fieldChangeRequiresRecreate(field)).toBe(false);
     }
@@ -21,7 +32,18 @@ describe('vm-update-policy', () => {
   });
 
   it('requires recreation for egress and other create-only fields', () => {
-    for (const field of ['allowHosts', 'allowCidrs', 'dns', 'gpuVram', 'dockerSocket', 'restart', 'secrets', 'registryIdentityToken', 'init', 'sshAgent']) {
+    for (const field of [
+      'allowHosts',
+      'allowCidrs',
+      'dns',
+      'gpuVram',
+      'dockerSocket',
+      'restart',
+      'secrets',
+      'registryIdentityToken',
+      'init',
+      'sshAgent'
+    ]) {
       expect(fieldChangeRequiresRecreate(field)).toBe(true);
     }
   });

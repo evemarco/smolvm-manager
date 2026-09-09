@@ -1,4 +1,8 @@
-import { smolVmErrorResponse, smolVmJson, unauthorizedSmolVmResponse } from '$lib/server/smolvm-api';
+import {
+  smolVmErrorResponse,
+  smolVmJson,
+  unauthorizedSmolVmResponse
+} from '$lib/server/smolvm-api';
 import { validateVmConfig, type VmConfig } from '$lib/server/vm-config';
 import {
   getSmolVmClient,
@@ -28,10 +32,7 @@ export const PATCH = async (
   const config: VmConfig = body.config ?? body;
   const validation = validateVmConfig({ ...config, name: 'update-target' });
   if (!validation.valid) {
-    return smolVmJson(
-      { error: 'Validation failed', details: validation.errors },
-      { status: 400 }
-    );
+    return smolVmJson({ error: 'Validation failed', details: validation.errors }, { status: 400 });
   }
 
   const client = deps?.client ?? getSmolVmClient();
@@ -47,7 +48,9 @@ export const PATCH = async (
           machine: params.name,
           message:
             'These configuration fields require VM recreation through the recreate endpoint.',
-          fields: [...plan.recreateRequired, ...plan.unsupportedLiveUpdate].map((diff) => diff.field),
+          fields: [...plan.recreateRequired, ...plan.unsupportedLiveUpdate].map(
+            (diff) => diff.field
+          ),
           recreateEndpoint: `/api/smolvm/machines/${encodeURIComponent(params.name)}/recreate`
         },
         { status: 409 }
@@ -99,7 +102,10 @@ export const PATCH = async (
       }
     }
 
-    return smolVmJson({ ...(await client.getMachine(params.name)), restartPerformed: restartRequired });
+    return smolVmJson({
+      ...(await client.getMachine(params.name)),
+      restartPerformed: restartRequired
+    });
   } catch (error) {
     return smolVmErrorResponse(error);
   }

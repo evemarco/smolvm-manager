@@ -65,6 +65,7 @@ The manager unit runs as the dedicated `smolvm-manager` user with `ProtectSystem
   ```
 
   The rule only allows `smolvm machine update` with an environment override (used for `HOME`); arguments are passed by the manager as an exec array, never through a shell.
+
 - The shipped unit keeps `ReadWritePaths` entries for `/var/lib/smolvm/.local/share/smolvm/server` and `/var/lib/smolvm/.cache/smolvm`: `ProtectSystem=strict` applies to the whole unit mount namespace, including the root-elevated child, so both paths must stay writable from the unit.
 
 Running as `root` instead is possible: set `User=root` and `Group=root` in `smolvm-manager.service`, keep the working directory anywhere you like, and drop `ProtectHome=true` if the app must read `/root`. You lose the sandbox — a manager compromise is then a root compromise — so prefer the dedicated user on any host that matters.
