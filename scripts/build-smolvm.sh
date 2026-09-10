@@ -213,6 +213,18 @@ initialize_patched_submodules() {
 build_patched_libraries() {
     initialize_patched_submodules
     log "Building SmolVM's patched libkrun stack from source (GPU=$LIBKRUN_GPU) ..."
+    # bindgen must find libclang at build time. Upstream's helper probes
+    # /usr/lib only, which misses the /usr/lib64 layout of RHEL/EL hosts and
+    # makes the libkrun build panic inside clang-sys. Export the directory
+    # ourselves when the toolchain reports one.
+    if [[ -z "${LIBCLANG_PATH:-}" ]]; then
+        local libclang
+        libclang="$(find /usr/lib64 /usr/lib /usr/local/lib -name 'libclang.so*' 2>/dev/null | head -1 || true)"
+        if [[ -n "$libclang" ]]; then
+            export LIBCLANG_PATH="$(dirname "$libclang")"
+            log "Using libclang at $LIBCLANG_PATH for bindgen."
+        fi
+    fi
     (
         cd "$BUILD_DIR"
         GPU="$LIBKRUN_GPU" ./scripts/build-libkrun-linux.sh

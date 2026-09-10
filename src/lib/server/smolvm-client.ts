@@ -128,11 +128,31 @@ export type SmolVmResizeRequest = {
 };
 
 export type SmolVmForkRequest = {
+  /** Name for the new child machine. */
   name: string;
+  /**
+   * Materialize the restored child as a new branch source so it can be
+   * branched again (smolvm 1.14 renames `forkable` → `branchable`, the old
+   * wire name stays accepted as an alias — we send the current one).
+   */
+  branchable?: boolean;
+  /** Pin the clone's inbound port forwards (skips automatic host-port remap). */
   ports?: Array<{ host: number; guest: number }>;
-  shareWeights?: Record<string, number>;
-  env?: SmolVmExecEnvVar[];
-  secrets?: SmolVmExecEnvVar[];
+  /** Share the golden's loaded CUDA weights instead of copying them. */
+  shareWeights?: boolean;
+  /** Per-fork parameters as KEY=VALUE strings, delivered to /etc/smolvm/fork-env. */
+  env?: string[];
+  /**
+   * Per-fork secret refs keyed by guest env var name (host env var / absolute
+   * file). Rejected on untrusted surfaces; resolved fresh on every exec.
+   */
+  secrets?: Record<string, { from_env?: string; from_file?: string }>;
+  /** Wait for the workload's forkpoint before releasing the clone. */
+  waitReady?: boolean;
+  /** Park the clone at the forkpoint (released via the fork-release endpoint). */
+  hold?: boolean;
+  /** Max seconds to wait for the forkpoint when waitReady/hold is set. */
+  readyTimeoutSecs?: number;
 };
 
 export type SmolVmExportRequest = {
@@ -176,6 +196,12 @@ export type SmolVmRegistryAuth = {
 };
 
 export type SmolVmStartMachineOptions = {
+  /**
+   * Start as a branch source (smolvm 1.14 wire name `branchable`; the 1.7
+   * name `forkable` remains accepted upstream and by this client).
+   */
+  branchable?: boolean;
+  /** Legacy alias for `branchable` (smolvm 1.7 semantics). */
   forkable?: boolean;
   registryAuth?: SmolVmRegistryAuth;
 };
@@ -713,7 +739,10 @@ export function createSmolVmClient(options: SmolVmClientOptions = {}): SmolVmCli
 
     startMachine(name, options) {
       const params = new URLSearchParams();
-      if (options?.forkable !== undefined) params.set('forkable', String(options.forkable));
+      // smolvm 1.14 renames `forkable` → `branchable` (old name accepted as
+      // an alias); we emit the current name and keep honoring both inputs.
+      const branchable = options?.branchable ?? options?.forkable;
+      if (branchable !== undefined) params.set('branchable', String(branchable));
       const query = params.toString();
       return callSmolVm(
         socketPath,

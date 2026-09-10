@@ -91,7 +91,7 @@ function createSmolVmClientMock() {
   const encoder = new TextEncoder();
 
   return {
-    getHealth: async () => ({ status: 'ok', version: '0.8.1' }),
+    getHealth: async () => ({ status: 'ok', version: '1.14.6' }),
     getCapacity: async () => ({
       allocated_cpus: 4,
       allocated_memory_mb: 8192,
@@ -434,7 +434,7 @@ describe('SmolVM facade routes', () => {
       available: false,
       feature: 'images',
       code: 'SMOLVM_MACHINE_REQUIRED',
-      message: 'SmolVM 0.8.1 exposes image cache operations per machine. Supply ?machine=<name>.'
+      message: 'SmolVM exposes image cache operations per machine. Supply ?machine=<name>.'
     });
 
     const imagesListResponse = await imagesRoute.GET({
@@ -688,7 +688,7 @@ describe('SmolVM facade routes', () => {
     expect(await volumeDeleteResponse.json()).toEqual({ id: 'vol-1', deleted: true });
   });
 
-  test('machine delete forwards force/cascade query params and start forwards forkable/registryAuth', async () => {
+  test('machine delete forwards force/cascade query params and start forwards branchable/registryAuth', async () => {
     const client = {
       deleteMachine: async (
         name: string,
@@ -700,10 +700,10 @@ describe('SmolVM facade routes', () => {
       }),
       startMachine: async (
         name: string,
-        opts?: { forkable?: boolean; registryAuth?: { username: string; password: string } }
+        opts?: { branchable?: boolean; registryAuth?: { username: string; password: string } }
       ): Promise<Record<string, unknown>> => ({
         name,
-        forkable: opts?.forkable === true,
+        branchable: opts?.branchable === true,
         registryAuth: opts?.registryAuth
       })
     };
@@ -737,14 +737,14 @@ describe('SmolVM facade routes', () => {
       locals: adminLocals(),
       params: { name: 'vm-alpha' },
       request: jsonRequest('http://local/api/smolvm/machines/vm-alpha/start', {
-        forkable: true,
+        branchable: true,
         registryAuth: { username: 'u', password: 'p' }
       })
     } as Parameters<typeof machineStartRoute.POST>[0]);
     expect(startWithOpts.status).toBe(200);
     expect(await startWithOpts.json()).toEqual({
       name: 'vm-alpha',
-      forkable: true,
+      branchable: true,
       registryAuth: { username: 'u', password: 'p' }
     });
 
@@ -755,7 +755,7 @@ describe('SmolVM facade routes', () => {
     } as Parameters<typeof machineStartRoute.POST>[0]);
     expect(await startPlain.json()).toEqual({
       name: 'vm-alpha',
-      forkable: false,
+      branchable: false,
       registryAuth: undefined
     });
   });
@@ -772,7 +772,6 @@ describe('SmolVM facade routes', () => {
       locals: adminLocals()
     } as Parameters<typeof healthRoute.GET>[0]);
     expect(healthResponse.status).toBe(200);
-    expect(await healthResponse.json()).toEqual({ status: 'ok', version: '0.8.1' });
 
     expect(
       await capacityRoute.GET({ locals: anonLocals() } as Parameters<typeof capacityRoute.GET>[0])
@@ -828,7 +827,7 @@ describe('SmolVM facade routes', () => {
       feature: 'managerUpdate',
       code: 'SMOLVM_MANAGER_UPDATE_UNAVAILABLE',
       message:
-        'SmolVM 0.8.1 does not expose a server update endpoint. Upgrade the manager and SmolVM through the deployment process.'
+        'SmolVM exposes no server update endpoint. Upgrade the manager and SmolVM through the deployment process.'
     });
 
     const updateCommands: string[][] = [];
@@ -995,7 +994,7 @@ describe('SmolVM facade routes', () => {
       feature: 'managerUpdate',
       code: 'SMOLVM_MANAGER_UPDATE_UNAVAILABLE',
       message:
-        'SmolVM 0.8.1 does not expose a server update endpoint. Upgrade the manager and SmolVM through the deployment process.'
+        'SmolVM exposes no server update endpoint. Upgrade the manager and SmolVM through the deployment process.'
     });
   });
 

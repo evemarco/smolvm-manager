@@ -8,6 +8,6 @@ export const GET: RequestHandler = async ({ locals }) => {
     feature: 'managerUpdate',
     code: 'SMOLVM_MANAGER_UPDATE_UNAVAILABLE',
     message:
-      'SmolVM 0.8.1 does not expose a server update endpoint. Upgrade the manager and SmolVM through the deployment process.'
+      'SmolVM exposes no server update endpoint. Upgrade the manager and SmolVM through the deployment process.'
   });
 };

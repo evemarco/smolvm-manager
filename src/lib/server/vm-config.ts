@@ -656,12 +656,16 @@ export function machineResponseToConfig(machine: Record<string, unknown>): VmCon
 
   if (typeof machine.cpus === 'number') config.cpus = machine.cpus;
   if (typeof machine.memoryMb === 'number') config.memory = machine.memoryMb;
-  if (typeof machine.memory === 'number') config.memory = machine.memory;
-  if (typeof machine.storage === 'number') config.storage = machine.storage;
-  if (typeof machine.overlay === 'number') config.overlay = machine.overlay;
+  // SmolVM 1.7.x exposed non-camelCase aliases; 1.14 returns storageGb/
+  // overlayGb only (memory stays memoryMb). Keep both readers.
+  if (typeof machine.storageGb === 'number') config.storage = machine.storageGb;
+  else if (typeof machine.storage === 'number') config.storage = machine.storage;
+  if (typeof machine.overlayGb === 'number') config.overlay = machine.overlayGb;
+  else if (typeof machine.overlay === 'number') config.overlay = machine.overlay;
   if (typeof machine.network === 'boolean') config.net = machine.network;
   if (typeof machine.gpu === 'boolean') config.gpu = machine.gpu;
-  if (typeof machine.gpuVram === 'number') config.gpuVram = machine.gpuVram;
+  // GPU VRAM is not part of the HTTP API surface (CLI-only gpuVramMb), so
+  // machine responses never carry it — the field stays absent on purpose.
   if (typeof machine.image === 'string') {
     const colonIdx = machine.image.lastIndexOf(':');
     if (colonIdx > 0) {

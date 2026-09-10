@@ -185,7 +185,8 @@
     startError = null;
     try {
       const body: Record<string, unknown> = {};
-      if (startForkable) body.forkable = true;
+      // SmolVM 1.14 wire name; the API start route forwards it as-is.
+      if (startForkable) body.branchable = true;
       const response = await fetch(
         `/api/smolvm/machines/${encodeURIComponent(startTarget.name)}/start`,
         {
@@ -360,8 +361,9 @@
     />
   </div>
   <p class="mt-3 text-xs text-slate-400">
-    The source must have been started with <span class="font-mono text-cyan-300">forkable</span>
-    enabled; otherwise SmolVM rejects the fork.
+    The source must have been started as a branch source
+    (<span class="font-mono text-cyan-300">branchable</span>, formerly
+    <span class="font-mono">forkable</span>); otherwise SmolVM rejects the branch.
   </p>
 </ActionDialog>
 
@@ -465,9 +467,9 @@
       class="rounded border-slate-600 bg-slate-950 text-cyan-500 focus:ring-cyan-400"
     />
     <div class="flex-1">
-      <p class="text-sm text-white">Forkable</p>
+      <p class="text-sm text-white">Branchable</p>
       <p class="text-xs text-slate-400">
-        Allow this machine to be forked into clones while running.
+        Allow this machine to be branched into clones while running (formerly "forkable").
       </p>
     </div>
   </label>

@@ -16,7 +16,8 @@ export const POST = async (
   const admin = locals.admin;
   const body = await request.json().catch(() => undefined);
   const options: SmolVmStartMachineOptions = {};
-  if (body?.forkable === true) options.forkable = true;
+  // SmolVM 1.14 renames `forkable` → `branchable`; accept both wire names.
+  if (body?.branchable === true || body?.forkable === true) options.branchable = true;
   const auth = body?.registryAuth;
   if (auth && typeof auth.username === 'string' && typeof auth.password === 'string') {
     options.registryAuth = { username: auth.username, password: auth.password };

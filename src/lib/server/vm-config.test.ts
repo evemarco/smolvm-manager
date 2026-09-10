@@ -464,6 +464,17 @@ describe('vm-config: machine response to config', () => {
     expect(config.volumes).toEqual([{ host: '/data', guest: '/app', readOnly: true }]);
   });
 
+  it('reads 1.14 wire names storageGb/overlayGb from the machine response', () => {
+    // smolvm 1.14 MachineInfo serializes disk sizes as storageGb/overlayGb
+    // (snake_case was already gone); the legacy 1.7 aliases stay tolerated.
+    const modern = machineResponseToConfig({ name: 'vm', storageGb: 30, overlayGb: 4 });
+    expect(modern.storage).toBe(30);
+    expect(modern.overlay).toBe(4);
+    const legacy = machineResponseToConfig({ name: 'vm', storage: 30, overlay: 4 });
+    expect(legacy.storage).toBe(30);
+    expect(legacy.overlay).toBe(4);
+  });
+
   it('converts SmolVM mounts with source/target/readonly fields', () => {
     const machine = {
       name: 'mount-vm',

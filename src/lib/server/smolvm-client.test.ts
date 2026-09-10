@@ -526,7 +526,7 @@ test('smolvm-client deleteMachine appends force/cascade query only when true', a
   ]);
 });
 
-test('smolvm-client startMachine sends forkable query and registryAuth body', async () => {
+test('smolvm-client startMachine sends branchable query and registryAuth body', async () => {
   const calls: Array<{ socketPath: string; options: SmolVmRequestOptions }> = [];
   const transport: SmolVmTransport = async (socketPath, options) => {
     calls.push({ socketPath, options });
@@ -536,13 +536,15 @@ test('smolvm-client startMachine sends forkable query and registryAuth body', as
 
   await client.startMachine('vm');
   await client.startMachine('vm', { forkable: true });
+  await client.startMachine('vm', { branchable: false });
   await client.startMachine('vm', {
     registryAuth: { username: 'u', password: 'p' }
   });
 
   expect(calls.map((call) => call.options)).toEqual([
     { method: 'POST', path: '/api/v1/machines/vm/start' },
-    { method: 'POST', path: '/api/v1/machines/vm/start?forkable=true' },
+    { method: 'POST', path: '/api/v1/machines/vm/start?branchable=true' },
+    { method: 'POST', path: '/api/v1/machines/vm/start?branchable=false' },
     {
       method: 'POST',
       path: '/api/v1/machines/vm/start',

@@ -1,16 +1,44 @@
 diff --git a/src/api/handlers/machines.rs b/src/api/handlers/machines.rs
-index 82810cf..34b03c4 100644
+index df1042f..d1c4366 100644
 --- a/src/api/handlers/machines.rs
 +++ b/src/api/handlers/machines.rs
-@@ -729,6 +729,7 @@ pub async fn create_machine(
+@@ -851,6 +851,13 @@ pub async fn create_machine(
+     let restored_allowed_hosts = checkpoint_network
+         .and_then(|network| network.dns_filter_hosts.clone())
+         .or_else(|| req.allowed_hosts.clone());
++    // The checkpoint's captured DNS override wins (same precedence as the
++    // restored egress policy); for a fresh machine the request value is used,
++    // and without either the backend default applies.
++    let restored_dns = checkpoint_network
++        .and_then(|network| network.dns.as_deref())
++        .and_then(|dns| dns.parse().ok())
++        .or(req.dns);
+     if let Some(network) = checkpoint_network {
+         normalized_cidrs = network.allowed_cidrs.clone();
+     }
+@@ -897,9 +904,12 @@ pub async fn create_machine(
+     }
+     .validate()
+     .map_err(|e| ApiError::BadRequest(e.to_string()))?;
++    // CLI parity: `--dns` implies --net (see resolve_egress_flags and
++    // smolfile.rs), and a nameserver without any network backend is a silent
++    // no-op — force the network on when the caller set one.
+     let network = checkpoint_network
+         .map(|network| network.enabled)
+-        .unwrap_or(req.network || manifest_net);
++        .unwrap_or(req.network || manifest_net || restored_dns.is_some());
+ 
+     // Reserve the name atomically (prevents concurrent creation)
+     let guard = ReservationGuard::new(&state, name.clone())?;
+@@ -1097,6 +1107,7 @@ pub async fn create_machine(
          allowed_cidrs: normalized_cidrs,
-         allowed_hosts: req.allowed_hosts.clone(),
-         network_backend: req.network_backend,
-+        dns: req.dns,
+         allowed_hosts: restored_allowed_hosts,
+         network_backend: restored_network_backend,
++        dns: restored_dns,
      };
  
      // Validate request-body secret refs before persisting. Untrusted
-@@ -2370,6 +2371,7 @@ mod tests {
+@@ -3893,6 +3904,7 @@ mod tests {
              allowed_cidrs: None,
              allowed_hosts: None,
              network_backend: None,
@@ -19,10 +47,10 @@ index 82810cf..34b03c4 100644
              image: None,
              from: None,
 diff --git a/src/api/state.rs b/src/api/state.rs
-index 9b7cbd8..2c5dfcc 100644
+index 7589c76..abf6d0e 100644
 --- a/src/api/state.rs
 +++ b/src/api/state.rs
-@@ -350,6 +350,7 @@ impl ApiState {
+@@ -505,6 +505,7 @@ impl ApiState {
                  allowed_cidrs: record.allowed_cidrs.clone(),
                  allowed_hosts: record.dns_filter_hosts.clone(),
                  network_backend: record.network_backend,
@@ -30,7 +58,7 @@ index 9b7cbd8..2c5dfcc 100644
              };
  
              // Create AgentManager and try to reconnect
-@@ -821,6 +822,7 @@ impl ApiState {
+@@ -1020,6 +1021,7 @@ impl ApiState {
          record.allowed_cidrs = reg.resources.allowed_cidrs.clone();
          record.dns_filter_hosts = reg.resources.allowed_hosts.clone();
          record.network_backend = reg.resources.network_backend;
@@ -38,9 +66,9 @@ index 9b7cbd8..2c5dfcc 100644
          // GPU flags (previously dropped here, so API-created machines
          // silently lost CUDA/GPU on restart).
          record.gpu = reg.resources.gpu;
-@@ -1401,9 +1403,9 @@ pub fn resource_spec_to_vm_resources(spec: &ResourceSpec, network: bool) -> VmRe
-         storage_gib: spec.storage_gb,
+@@ -1638,9 +1640,9 @@ pub fn resource_spec_to_vm_resources(spec: &ResourceSpec, network: bool) -> VmRe
          overlay_gib: spec.overlay_gb,
+         block_io: spec.block_io.unwrap_or_default(),
          allowed_cidrs: spec.allowed_cidrs.clone(),
 -        // Custom DNS is a local-CLI feature for now; the cloud ResourceSpec
 -        // does not expose it, so API-launched VMs inherit the backend default.
@@ -48,10 +76,10 @@ index 9b7cbd8..2c5dfcc 100644
 +        // ResourceSpec carries the per-machine custom DNS override (API parity
 +        // with the CLI `--dns`); None keeps the backend default.
 +        dns: spec.dns,
+         network_name: None,
      }
  }
- 
-@@ -1422,6 +1424,7 @@ pub fn vm_resources_to_spec(res: VmResources) -> ResourceSpec {
+@@ -1661,6 +1663,7 @@ pub fn vm_resources_to_spec(res: VmResources) -> ResourceSpec {
          // back from the source record (see the MachineEntry reload path).
          allowed_hosts: None,
          network_backend: res.network_backend,
@@ -59,7 +87,7 @@ index 9b7cbd8..2c5dfcc 100644
      }
  }
  
-@@ -1541,6 +1544,7 @@ mod tests {
+@@ -1852,6 +1855,7 @@ mod tests {
              allowed_cidrs: None,
              allowed_hosts: None,
              network_backend: None,
@@ -67,7 +95,7 @@ index 9b7cbd8..2c5dfcc 100644
          };
          let res = resource_spec_to_vm_resources(&spec, false);
          assert_eq!(res.cpus, DEFAULT_MICROVM_CPU_COUNT);
-@@ -1606,6 +1610,7 @@ mod tests {
+@@ -1918,6 +1922,7 @@ mod tests {
                      allowed_cidrs: None,
                      allowed_hosts: None,
                      network_backend: None,
@@ -75,7 +103,7 @@ index 9b7cbd8..2c5dfcc 100644
                  },
                  restart: RestartConfig::default(),
                  network: false,
-@@ -1669,6 +1674,7 @@ mod tests {
+@@ -1986,6 +1991,7 @@ mod tests {
                      allowed_cidrs: None,
                      allowed_hosts: None,
                      network_backend: None,
@@ -84,11 +112,11 @@ index 9b7cbd8..2c5dfcc 100644
                  restart: RestartConfig::default(),
                  network: false,
 diff --git a/src/api/types.rs b/src/api/types.rs
-index 95a47f4..a950c4a 100644
+index 07cd4a6..08413c6 100644
 --- a/src/api/types.rs
 +++ b/src/api/types.rs
-@@ -117,6 +117,12 @@ pub struct ResourceSpec {
-     /// (required for published `ports`). Omit for the default (TSI).
+@@ -132,6 +132,12 @@ pub struct ResourceSpec {
+     /// lighter outbound-only backend (rejected alongside published `ports`).
      #[serde(default)]
      pub network_backend: Option<crate::network::NetworkBackend>,
 +    /// Custom guest DNS resolver (single IPv4). Overrides the backend default
@@ -100,8 +128,8 @@ index 95a47f4..a950c4a 100644
  }
  
  // ============================================================================
-@@ -535,6 +541,13 @@ pub struct CreateMachineRequest {
-     /// Published `ports` require `virtio-net` (TSI has no inbound path).
+@@ -628,6 +634,13 @@ pub struct CreateMachineRequest {
+     /// path), so that combination is rejected.
      #[serde(default)]
      pub network_backend: Option<crate::network::NetworkBackend>,
 +    /// Custom guest DNS resolver (single IPv4), same semantics as the CLI
