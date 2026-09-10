@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { mockSmolVmMachines } from './helpers';
+
 async function waitForAuthState(page: Page, timeoutMs = 15000) {
   const initialSetupHeading = page.getByRole('heading', { name: 'Initial Setup' });
   const signInHeading = page.getByRole('heading', { name: 'Sign In' });
@@ -49,15 +51,11 @@ async function loginAsAdmin(page: Page) {
 }
 
 async function mockMachines(page: Page) {
-  await page.route('**/api/smolvm/machines', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        machines: [{ name: 'guest-vm', status: 'running', state: 'running', cpus: 2 }]
-      })
-    });
-  });
+  // Covers the SSE machines stream as well — otherwise a real SmolVM daemon
+  // on the host overwrites this mock with live machines.
+  await mockSmolVmMachines(page, [
+    { name: 'guest-vm', status: 'running', state: 'running', cpus: 2 }
+  ]);
 }
 
 async function openGuestVmDetail(page: Page) {

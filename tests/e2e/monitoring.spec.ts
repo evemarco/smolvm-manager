@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { mockSmolVmMachines, type SmolVmMachineMock } from './helpers';
+
 async function loginAsAdmin(page: Page) {
   await page.goto('/');
 
@@ -43,16 +45,17 @@ const MOCK_MACHINES = {
 };
 
 test.describe('metrics dashboard', () => {
+  // Hermetic machine list covering the SSE stream as well (see helpers.ts).
+  let smolvmMock: SmolVmMachineMock;
+
+  test.beforeEach(async ({ page }) => {
+    smolvmMock = await mockSmolVmMachines(page);
+  });
+
   test('capacity summary shows on dashboard', async ({ page }) => {
     await loginAsAdmin(page);
 
-    await page.route('**/api/smolvm/machines', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(MOCK_MACHINES)
-      });
-    });
+    smolvmMock.setMachines(MOCK_MACHINES.machines);
 
     await page.route('**/api/smolvm/capacity', async (route) => {
       await route.fulfill({
@@ -73,13 +76,7 @@ test.describe('metrics dashboard', () => {
   test('metrics tab shows capacity cards and per-VM unavailable notice', async ({ page }) => {
     await loginAsAdmin(page);
 
-    await page.route('**/api/smolvm/machines', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(MOCK_MACHINES)
-      });
-    });
+    smolvmMock.setMachines(MOCK_MACHINES.machines);
 
     await page.route('**/api/smolvm/metrics', async (route) => {
       await route.fulfill({
@@ -115,13 +112,7 @@ test.describe('metrics dashboard', () => {
   test('metrics tab shows running VMs count', async ({ page }) => {
     await loginAsAdmin(page);
 
-    await page.route('**/api/smolvm/machines', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(MOCK_MACHINES)
-      });
-    });
+    smolvmMock.setMachines(MOCK_MACHINES.machines);
 
     await page.route('**/api/smolvm/metrics', async (route) => {
       await route.fulfill({
@@ -152,13 +143,7 @@ test.describe('metrics dashboard', () => {
   test('metrics tab handles error state', async ({ page }) => {
     await loginAsAdmin(page);
 
-    await page.route('**/api/smolvm/machines', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(MOCK_MACHINES)
-      });
-    });
+    smolvmMock.setMachines(MOCK_MACHINES.machines);
 
     await page.route('**/api/smolvm/metrics', async (route) => {
       await route.fulfill({
@@ -197,13 +182,7 @@ test.describe('metrics dashboard', () => {
       sampledAt: new Date(now.getTime() - (4 - i) * 30000).toISOString()
     }));
 
-    await page.route('**/api/smolvm/machines', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(MOCK_MACHINES)
-      });
-    });
+    smolvmMock.setMachines(MOCK_MACHINES.machines);
 
     await page.route('**/api/smolvm/metrics', async (route) => {
       await route.fulfill({
@@ -244,13 +223,7 @@ test.describe('metrics dashboard', () => {
       }
     };
 
-    await page.route('**/api/smolvm/machines', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(MOCK_MACHINES)
-      });
-    });
+    smolvmMock.setMachines(MOCK_MACHINES.machines);
 
     await page.route('**/api/smolvm/metrics', async (route) => {
       await route.fulfill({

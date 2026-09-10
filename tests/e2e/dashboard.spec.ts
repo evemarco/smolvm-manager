@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { mockSmolVmMachines, type SmolVmMachineMock } from './helpers';
+
 // Helper: authenticate as admin
 async function loginAsAdmin(page: Page) {
   await page.goto('/');
@@ -21,17 +23,13 @@ async function loginAsAdmin(page: Page) {
 }
 
 test.describe('vm dashboard', () => {
-  // Default to an empty machine list so tests stay hermetic even when a real
-  // SmolVM daemon with machines is reachable on the host. Tests registering
-  // their own machines route afterwards take precedence (last registered wins).
+  // Default to an empty machine list — including the SSE machines stream, so
+  // tests stay hermetic even when a real SmolVM daemon with machines is
+  // reachable on the host. Tests call smolvmMock.setMachines() to seed VMs.
+  let smolvmMock: SmolVmMachineMock;
+
   test.beforeEach(async ({ page }) => {
-    await page.route('**/api/smolvm/machines', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ machines: [] })
-      });
-    });
+    smolvmMock = await mockSmolVmMachines(page);
   });
 
   test('authenticated empty dashboard renders no-machines state and Create VM button', async ({
@@ -78,19 +76,10 @@ test.describe('vm dashboard', () => {
   test('delete confirmation modal opens and cancel does not call delete', async ({ page }) => {
     await loginAsAdmin(page);
 
-    // Since there are no VMs, we need to mock the API to return a VM
-    // Intercept the machines API to return a test VM
-    await page.route('**/api/smolvm/machines', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          machines: [
-            { name: 'test-vm', status: 'stopped', state: 'stopped', cpus: 2, memory: '512M' }
-          ]
-        })
-      });
-    });
+    // Seed a VM so the actions menu has something to act on
+    smolvmMock.setMachines([
+      { name: 'test-vm', status: 'stopped', state: 'stopped', cpus: 2, memory: '512M' }
+    ]);
 
     // Intercept delete API to track if it's called
     let deleteCalled = false;
@@ -113,13 +102,14 @@ test.describe('vm dashboard', () => {
     await page.getByRole('button', { name: 'Delete' }).click();
 
     // Confirmation modal should appear
-    await expect(page.getByText('Are you sure you want to delete')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Delete machine' })).toBeVisible();
+    await expect(page.getByText('Delete test-vm. This action cannot be undone.')).toBeVisible();
 
     // Click Cancel
     await page.getByRole('button', { name: 'Cancel' }).click();
 
     // Modal should close
-    await expect(page.getByText('Are you sure you want to delete')).not.toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Delete machine' })).not.toBeVisible();
 
     // Delete should NOT have been called
     expect(deleteCalled).toBe(false);
@@ -128,18 +118,9 @@ test.describe('vm dashboard', () => {
   test('restart confirmation modal opens and cancel does not call restart', async ({ page }) => {
     await loginAsAdmin(page);
 
-    // Intercept the machines API to return a running VM
-    await page.route('**/api/smolvm/machines', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          machines: [
-            { name: 'running-vm', status: 'running', state: 'running', cpus: 2, memory: '512M' }
-          ]
-        })
-      });
-    });
+    smolvmMock.setMachines([
+      { name: 'running-vm', status: 'running', state: 'running', cpus: 2, memory: '512M' }
+    ]);
 
     // Intercept stop/start APIs to track calls
     let stopCalled = false;
@@ -179,18 +160,9 @@ test.describe('vm dashboard', () => {
   test('clicking VM name opens detail view with tabs', async ({ page }) => {
     await loginAsAdmin(page);
 
-    // Intercept the machines API to return a test VM
-    await page.route('**/api/smolvm/machines', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          machines: [
-            { name: 'detail-vm', status: 'running', state: 'running', cpus: 4, memory: '1G' }
-          ]
-        })
-      });
-    });
+    smolvmMock.setMachines([
+      { name: 'detail-vm', status: 'running', state: 'running', cpus: 4, memory: '1G' }
+    ]);
 
     await page.goto('/');
     await expect(page.getByText('detail-vm')).toBeVisible();
@@ -216,20 +188,11 @@ test.describe('vm dashboard', () => {
   test('search filters machines by name', async ({ page }) => {
     await loginAsAdmin(page);
 
-    // Intercept the machines API to return multiple VMs
-    await page.route('**/api/smolvm/machines', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          machines: [
-            { name: 'alpha-vm', status: 'running', state: 'running' },
-            { name: 'beta-vm', status: 'stopped', state: 'stopped' },
-            { name: 'gamma-vm', status: 'running', state: 'running' }
-          ]
-        })
-      });
-    });
+    smolvmMock.setMachines([
+      { name: 'alpha-vm', status: 'running', state: 'running' },
+      { name: 'beta-vm', status: 'stopped', state: 'stopped' },
+      { name: 'gamma-vm', status: 'running', state: 'running' }
+    ]);
 
     await page.goto('/');
     await expect(page.getByText('alpha-vm')).toBeVisible();
@@ -248,19 +211,10 @@ test.describe('vm dashboard', () => {
   test('status filter filters machines by status', async ({ page }) => {
     await loginAsAdmin(page);
 
-    // Intercept the machines API to return multiple VMs
-    await page.route('**/api/smolvm/machines', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          machines: [
-            { name: 'alpha-vm', status: 'running', state: 'running' },
-            { name: 'beta-vm', status: 'stopped', state: 'stopped' }
-          ]
-        })
-      });
-    });
+    smolvmMock.setMachines([
+      { name: 'alpha-vm', status: 'running', state: 'running' },
+      { name: 'beta-vm', status: 'stopped', state: 'stopped' }
+    ]);
 
     await page.goto('/');
     await expect(page.getByText('alpha-vm')).toBeVisible();

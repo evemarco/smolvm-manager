@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { mockSmolVmMachines } from './helpers';
+
 // Helper: authenticate as admin (handles both setup and login flows)
 async function loginAsAdmin(page: Page) {
   await page.goto('/');
@@ -53,17 +55,11 @@ test.describe('pylon reactive sync', () => {
     const errors = collectErrors(page);
 
     // Provide a machine so the table view actually renders a <table>
-    await page.route('**/api/smolvm/machines', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          machines: [
-            { name: 'sync-vm', status: 'running', state: 'running', cpus: 2, memoryMb: 2048 }
-          ]
-        })
-      });
-    });
+    // (fetch + SSE stream mocked together — otherwise the host's real
+    // machines override this list)
+    await mockSmolVmMachines(page, [
+      { name: 'sync-vm', status: 'running', state: 'running', cpus: 2, memoryMb: 2048 }
+    ]);
 
     await loginAsAdmin(page);
 
@@ -124,17 +120,9 @@ test.describe('pylon reactive sync', () => {
       sampledAt: new Date().toISOString()
     };
 
-    await page.route('**/api/smolvm/machines', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          machines: [
-            { name: 'test-vm', status: 'running', state: 'running', cpus: 2, memoryMb: 2048 }
-          ]
-        })
-      });
-    });
+    await mockSmolVmMachines(page, [
+      { name: 'test-vm', status: 'running', state: 'running', cpus: 2, memoryMb: 2048 }
+    ]);
 
     await page.route('**/api/smolvm/metrics', async (route) => {
       await route.fulfill({

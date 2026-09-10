@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { mockSmolVmMachines } from './helpers';
+
 // Helper: authenticate as admin
 async function loginAsAdmin(page: Page) {
   await page.goto('/');
@@ -29,13 +31,9 @@ const RUNNING_VM = {
 };
 
 async function mockOneRunningVm(page: Page) {
-  await page.route('**/api/smolvm/machines', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ machines: [RUNNING_VM] })
-    });
-  });
+  // Covers the SSE machines stream as well — otherwise a real SmolVM daemon
+  // on the host overwrites this mock with live machines.
+  await mockSmolVmMachines(page, [RUNNING_VM]);
 }
 
 async function mockTabWebsockets(page: Page) {

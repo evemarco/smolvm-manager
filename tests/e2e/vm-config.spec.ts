@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { mockSmolVmMachines } from './helpers';
+
 async function waitForAuthState(page: Page, timeoutMs = 15000) {
   const initialSetupHeading = page.getByRole('heading', { name: 'Initial Setup' });
   const signInHeading = page.getByRole('heading', { name: 'Sign In' });
@@ -62,26 +64,12 @@ async function loginAsAdmin(page: Page) {
 }
 
 async function mockEmptyMachines(page: Page) {
-  await page.route('**/api/smolvm/machines', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ machines: [] })
-    });
-  });
+  await mockSmolVmMachines(page);
 }
 
+// Covers fetch AND the SSE machines stream — see tests/e2e/helpers.ts.
 async function mockMachines(page: Page, machines: Array<Record<string, unknown>>) {
-  await page.route('**/api/smolvm/machines/stream', async () => {
-    await new Promise<void>(() => undefined);
-  });
-  await page.route('**/api/smolvm/machines', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ machines })
-    });
-  });
+  await mockSmolVmMachines(page, machines);
   for (const machine of machines) {
     await page.route(
       `**/api/smolvm/machines/${encodeURIComponent(String(machine.name))}`,
@@ -170,7 +158,8 @@ test.describe('toml and vm config', () => {
     await page.getByRole('button', { name: 'Create new virtual machine' }).click();
     await expect(page.getByText('Create Virtual Machine')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Volumes' }).click();
+    // Scope to the dialog: the dashboard toolbar also has a "Volumes" button.
+    await page.getByRole('dialog').getByRole('button', { name: 'Volumes' }).click();
 
     await page.getByPlaceholder('/host/path').fill('/data');
     await page.getByPlaceholder('/guest/path').fill('/app/data');
@@ -431,7 +420,8 @@ net = true`;
 
     await page.getByPlaceholder('my-vm').fill('sensitive-test');
 
-    await page.getByRole('button', { name: 'Volumes' }).click();
+    // Scope to the dialog: the dashboard toolbar also has a "Volumes" button.
+    await page.getByRole('dialog').getByRole('button', { name: 'Volumes' }).click();
 
     await page.getByPlaceholder('/host/path').fill('/etc');
     await page.getByPlaceholder('/guest/path').fill('/mnt/etc');
@@ -456,7 +446,8 @@ net = true`;
     await page.getByRole('button', { name: 'Create new virtual machine' }).click();
     await expect(page.getByText('Create Virtual Machine')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Volumes' }).click();
+    // Scope to the dialog: the dashboard toolbar also has a "Volumes" button.
+    await page.getByRole('dialog').getByRole('button', { name: 'Volumes' }).click();
 
     await page.getByPlaceholder('/host/path').fill('/data/app');
     await page.getByPlaceholder('/guest/path').fill('/app');
