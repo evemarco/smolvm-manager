@@ -8,7 +8,7 @@
  *   workdir, init, ssh_agent, gpu, gpu_vram (MiB), entrypoint, cmd
  * - since 1.7: secrets, docker_socket, restart, registry_identity_token
  *
- * Wire-name notes (CreateMachineRequest, verified against 1.7.1 types.rs):
+ * Wire-name notes (CreateMachineRequest, verified against 1.14.6 types.rs):
  * - egress lists serialize as `allowedHosts`/`allowedCidrs` — the bare
  *   `allowHosts`/`allowCidrs` names are silently ignored upstream.
  * - `init`, `sshAgent` and `gpuVramMb` are CLI-only and silently ignored by

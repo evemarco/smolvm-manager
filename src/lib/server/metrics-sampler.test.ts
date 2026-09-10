@@ -35,7 +35,7 @@ function createMockSmolVmClient(
 ): SmolVmClient {
   return {
     socketPath: '/tmp/test.sock',
-    getHealth: async () => ({ status: 'ok', version: '0.8.1' }),
+    getHealth: async () => ({ status: 'ok', version: '1.14.6' }),
     getCapacity: async () => capacity as Record<string, unknown>,
     getMetrics: async () => metrics,
     listMachines: async () => ({ machines: [] }),

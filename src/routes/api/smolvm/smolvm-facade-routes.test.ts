@@ -503,7 +503,7 @@ describe('SmolVM facade routes', () => {
     });
   });
 
-  test('smolvm 1.7 routes keep auth gates, validation, and success shapes', async () => {
+  test('smolvm routes keep auth gates, validation, and success shapes', async () => {
     installSmolVmClientMock();
     const store = installManagerStoreMock();
 

@@ -39,7 +39,7 @@ beforeEach(() => {
 });
 
 test('smolvm-client uses default socket and constructs health request', async () => {
-  const { calls, transport } = createCapturingTransport({ status: 'ok', version: '0.8.1' });
+  const { calls, transport } = createCapturingTransport({ status: 'ok', version: '1.14.6' });
   const client = createSmolVmClient({ transport });
 
   const health = await client.getHealth();

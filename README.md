@@ -15,7 +15,7 @@ A web-based manager for [SmolVM](https://github.com/smol-machines/smolvm) virtua
 
 - [Bun](https://bun.sh/) 1.3.14 or later
 - [Pylon](https://github.com/pylonsync/pylon) `0.3.355`, available as `pylon` or through `PYLON_COMMAND`
-- [SmolVM](https://github.com/smol-machines/smolvm) installed and serving its API on `unix:///tmp/smolvm.sock` — verified against **1.6.13**, **1.7.0**, and **1.7.1** (see below)
+- [SmolVM](https://github.com/smol-machines/smolvm) installed and serving its API on `unix:///tmp/smolvm.sock` — verified against **1.6.13–1.7.1** and **1.14.6** (see below)
 - KVM access through `/dev/kvm` on Linux hosts that run SmolVM
 - Optional: `libxmlsec1-openssl` runtime library if your Pylon package depends on it
 
@@ -23,7 +23,7 @@ A web-based manager for [SmolVM](https://github.com/smol-machines/smolvm) virtua
 > Upstream's `--dns` option exists only in the CLI; the HTTP create API the manager
 > drives has no `dns` field and silently ignores unknown ones. On hosts that block
 > the compiled-in `1.1.1.1` resolver, guests then lose DNS with no error anywhere.
-> Build SmolVM from source with `./scripts/build-smolvm.sh --version v1.7.1`, which
+> Build SmolVM from source with `./scripts/build-smolvm.sh --version v1.14.6`, which
 > applies `scripts/smolvm-api-dns.patch` (adds `dns` to the create API) and fails
 > loudly if the patch ever stops applying. CLI-only users do not need this:
 > `smolvm machine create --dns <ip>` works with the stock binary. On hosts where
@@ -34,14 +34,14 @@ Prebuilt Pylon or SmolVM executables may not run on hosts with an older glibc or
 
 ### SmolVM Compatibility
 
-The manager is verified against SmolVM **1.6.13**, **1.7.0**, and **1.7.1**. Version-sensitive behaviors that matter:
+The manager is verified against SmolVM **1.6.13–1.7.1** and **1.14.6** (current). Version-sensitive behaviors that matter:
 
 - Since 1.6.13, the log-stream `follow` query parameter is strictly deserialized as a boolean: `follow=1` is rejected with a 400. The manager sends `follow=true`; custom clients against the SmolVM API must do the same.
-- Guest DNS is set per machine at create time. SmolVM's stock guest path forwards to a public resolver compiled into the binary (`1.1.1.1`), which Hetzner's external firewall blocks; the manager therefore builds SmolVM with `scripts/smolvm-api-dns.patch` (adds `dns` to the create API, upstream CLI parity) and sends `dns=185.12.64.1` (Hetzner's resolver) on every create unless the config sets another resolver or `SMOLVM_GUEST_DNS=none` opts out. Machines created before this change still use `1.1.1.1` — recreate them to migrate. The former host-level DNAT redirect (`scripts/ensure-smolvm-dns-redirect.sh`) is no longer wired into the service unit.
+- Guest DNS is set per machine at create time. SmolVM's stock guest path forwards to a public resolver compiled into the binary (`1.1.1.1`), which Hetzner's external firewall blocks; the manager therefore builds SmolVM with `scripts/smolvm-api-dns.patch` (adds `dns` to the create API, upstream CLI parity) and sends `dns=185.12.64.1` (Hetzner's resolver) on every create unless the config sets another resolver or `SMOLVM_GUEST_DNS=none` opts out. Machines created before this change still use `1.1.1.1` — recreate them to migrate. The rebased patch also folds `dns` into the create-path network decision (CLI parity: `--dns` implies `--net`) and carries it through `.smolcheckpoint` restores.
 - SmolVM 1.7.0 rejects invalid create/update payloads that earlier versions accepted silently: out-of-range CPU/memory, `cmd`/`entrypoint` without an image, duplicate guest mount targets, and malformed env names, ports, or egress CIDRs. The manager form pre-validates most of these; any remaining case now surfaces as a clear 400 error in the UI instead of being silently ignored.
 - The create API's exact wire names are `allowedHosts`/`allowedCidrs`; the bare `allowHosts`/`allowCidrs` are silently ignored upstream, as are the CLI-only `init`, `sshAgent`, and `gpuVramMb`. The manager emits only names the API honors.
-
-SmolVM 1.7.0 also makes start failures explicit (an image pull failure fails the start and no longer leaves an orphaned agent VM or a stuck "already starting" lock) and reports boot failures with diagnosable messages, which the manager's Diagnostics page surfaces directly.
+- The exec/run API uses `denyUnknownFields` since 1.9.2: a mis-cased safety field (`timeout_secs` instead of `timeoutSecs`) is a hard 422, never a silent drop. The manager sends exactly the accepted fields.
+- 1.14 serves disk sizes in machine responses as `storageGb`/`overlayGb` (the loose `memory`/`storage` aliases are gone) and `machine ls` reports `branchable` alongside the legacy `forkable` echo; the manager reads both forms.
 
 ## Quick Start
 
@@ -67,7 +67,7 @@ If the downloaded executables fail with a glibc or shared-library error, build t
 
 ```sh
 ./scripts/build-pylon.sh
-./scripts/build-smolvm.sh --version v1.7.0
+./scripts/build-smolvm.sh --version v1.14.6
 ```
 
 The Pylon script compiles the project-pinned `v0.3.355` release against the host glibc. The SmolVM script validates the version-matched Git LFS `libkrun` stack, creates the complete distribution, and automatically compiles SmolVM's patched `libkrun` and `libkrunfw` submodules over HTTPS only when compatibility checks require it.
