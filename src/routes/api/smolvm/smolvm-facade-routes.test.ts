@@ -503,6 +503,26 @@ describe('SmolVM facade routes', () => {
     });
   });
 
+  test('machine create rejects secret refs unsupported by the HTTP API', async () => {
+    installSmolVmClientMock();
+
+    const response = await machinesCreateRoute.POST({
+      locals: adminLocals(),
+      request: jsonRequest('http://local/api/smolvm/machines/create', {
+        ...validVmConfig,
+        secrets: [{ name: 'API_KEY', fromEnv: 'HOST_API_KEY' }]
+      })
+    } as Parameters<typeof machinesCreateRoute.POST>[0]);
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: 'Secrets require local CLI configuration',
+      code: 'SMOLVM_SECRETS_CLI_ONLY',
+      message:
+        'Create the machine with smolvm machine create --secret-env/--secret-file; the HTTP API cannot resolve host secret refs.'
+    });
+  });
+
   test('smolvm routes keep auth gates, validation, and success shapes', async () => {
     installSmolVmClientMock();
     const store = installManagerStoreMock();
@@ -1261,7 +1281,9 @@ describe('SmolVM facade routes', () => {
       code: 'SMOLVM_RECREATE_REQUIRED',
       machine: 'vm one',
       message: 'These configuration fields require VM recreation through the recreate endpoint.',
-      fields: ['image', 'tag'],
+      // Only fields actually present in the request body count as changes
+      // (PATCH semantics): `tag` is absent, so it stays 'latest'.
+      fields: ['image'],
       recreateEndpoint: '/api/smolvm/machines/vm%20one/recreate'
     });
   });

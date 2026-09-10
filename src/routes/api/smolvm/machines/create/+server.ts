@@ -24,6 +24,21 @@ export const POST = async (
       { status: 400, headers: { 'Content-Type': 'application/json' } }
     );
   }
+  // SmolVM's HTTP create API treats the caller as untrusted and rejects every
+  // non-empty SecretRef map (host env/file reads are TrustedLocal-only). Do
+  // not forward a payload that can only fail deep in SmolVM, and never turn
+  // these refs into inline plaintext. Configure them locally with the CLI.
+  if (config.secrets && config.secrets.length > 0) {
+    return new Response(
+      JSON.stringify({
+        error: 'Secrets require local CLI configuration',
+        code: 'SMOLVM_SECRETS_CLI_ONLY',
+        message:
+          'Create the machine with smolvm machine create --secret-env/--secret-file; the HTTP API cannot resolve host secret refs.'
+      }),
+      { status: 409, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
 
   const createReq = configToCreateRequest(config);
   const admin = locals.admin;

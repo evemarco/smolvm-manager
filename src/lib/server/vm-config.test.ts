@@ -6,7 +6,6 @@ import {
   diffConfigs,
   classifyChanges,
   configToCreateRequest,
-  configToUpdateRequest,
   machineResponseToConfig,
   configForCopy,
   defaultVmConfig,
@@ -346,7 +345,8 @@ describe('vm-config: API request conversion', () => {
     expect(req.network).toBe(true);
     expect(req.ports).toEqual([{ host: 8080, guest: 80 }]);
     expect(req.mounts).toEqual([{ source: '/data', target: '/app/data', readonly: true }]);
-    expect(req.env).toEqual({ FOO: 'bar' });
+    // The 1.14 create API takes env as [{name, value}]; a map is a 400.
+    expect(req.env).toEqual([{ name: 'FOO', value: 'bar' }]);
     // sshAgent is CLI-only upstream (silently ignored by the HTTP API)
     expect('sshAgent' in req).toBe(false);
   });
@@ -426,21 +426,6 @@ describe('vm-config: API request conversion', () => {
     }
   });
 
-  it('converts config to update request (excludes recreate fields)', () => {
-    const config: VmConfig = {
-      name: 'vm',
-      image: 'alpine',
-      cpus: 4,
-      memory: 1024,
-      net: true
-    };
-    const req = configToUpdateRequest(config);
-    expect(req.cpus).toBe(4);
-    expect(req.memoryMb).toBe(1024);
-    expect(req.network).toBe(true);
-    expect('image' in req).toBe(false);
-    expect('name' in req).toBe(false);
-  });
 });
 
 describe('vm-config: machine response to config', () => {
@@ -730,18 +715,22 @@ describe('vm-config: sensitive host mount detection', () => {
 });
 
 describe('vm-config: 1.7 fields', () => {
-  it('round-trips secrets, dockerSocket, restart, and registryIdentityToken through TOML', () => {
+  it('round-trips secret refs, dockerSocket, restart, and registryIdentityToken through TOML', () => {
     const original: VmConfig = {
       name: 'vm-17',
       image: 'alpine',
-      secrets: [{ name: 'API_KEY', value: 's3cr3t' }],
+      secrets: [
+        { name: 'API_KEY', fromEnv: 'HOST_API_KEY' },
+        { name: 'TLS_KEY', fromFile: '/run/secrets/tls.key' }
+      ],
       dockerSocket: true,
       restart: 'unless-stopped',
       registryIdentityToken: 'token-abc'
     };
     const toml = configToToml(original);
     expect(toml).toContain('[secrets]');
-    expect(toml).toContain('API_KEY = "s3cr3t"');
+    expect(toml).toContain('API_KEY = { from_env = "HOST_API_KEY" }');
+    expect(toml).toContain('TLS_KEY = { from_file = "/run/secrets/tls.key" }');
     expect(toml).toContain('[runtime]');
     expect(toml).toContain('docker_socket = true');
     expect(toml).toContain('restart = "unless-stopped"');
@@ -749,22 +738,36 @@ describe('vm-config: 1.7 fields', () => {
 
     const { config: parsed, errors } = parseTomlToConfig(toml);
     expect(errors).toHaveLength(0);
-    expect(parsed.secrets).toEqual([{ name: 'API_KEY', value: 's3cr3t' }]);
+    expect(parsed.secrets).toEqual([
+      { name: 'API_KEY', fromEnv: 'HOST_API_KEY' },
+      { name: 'TLS_KEY', fromFile: '/run/secrets/tls.key' }
+    ]);
     expect(parsed.dockerSocket).toBe(true);
     expect(parsed.restart).toBe('unless-stopped');
     expect(parsed.registryIdentityToken).toBe('token-abc');
   });
 
-  it('emits secrets/dockerSocket/restart/registryIdentityToken in create request with upstream names', () => {
+  it('flags legacy inline secret values as errors', () => {
+    const { errors } = parseTomlToConfig('[secrets]\nAPI_KEY = "s3cr3t"\n');
+    expect(errors.some((e) => e.message.includes('inline value'))).toBe(true);
+  });
+
+  it('emits secret refs in create request as the upstream RequestSecretRefs map', () => {
     const config: VmConfig = {
       name: 'vm-17',
-      secrets: [{ name: 'API_KEY', value: 's3cr3t' }],
+      secrets: [
+        { name: 'API_KEY', fromEnv: 'HOST_API_KEY' },
+        { name: 'TLS_KEY', fromFile: '/run/secrets/tls.key' }
+      ],
       dockerSocket: true,
       restart: 'always',
       registryIdentityToken: 'token-abc'
     };
     const req = configToCreateRequest(config);
-    expect(req.secrets).toEqual([{ name: 'API_KEY', value: 's3cr3t' }]);
+    expect(req.secrets).toEqual({
+      API_KEY: { from_env: 'HOST_API_KEY' },
+      TLS_KEY: { from_file: '/run/secrets/tls.key' }
+    });
     expect(req.dockerSocket).toBe(true);
     expect(req.restart).toBe('always');
     expect(req.registryIdentityToken).toBe('token-abc');
@@ -781,16 +784,37 @@ describe('vm-config: 1.7 fields', () => {
   it('rejects invalid secret names', () => {
     const result = validateVmConfig({
       name: 'vm',
-      secrets: [{ name: '123BAD', value: 'x' }]
+      secrets: [{ name: '123BAD', fromEnv: 'HOST_VAR' }]
     });
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.field === 'secrets')).toBe(true);
   });
 
-  it('accepts valid secret names', () => {
+  it('rejects a secret ref with no or two sources', () => {
+    const none = validateVmConfig({ name: 'vm', secrets: [{ name: 'GOOD_KEY' }] });
+    expect(none.valid).toBe(false);
+    const both = validateVmConfig({
+      name: 'vm',
+      secrets: [{ name: 'GOOD_KEY', fromEnv: 'A', fromFile: '/tmp/x' }]
+    });
+    expect(both.valid).toBe(false);
+  });
+
+  it('rejects a relative from_file path', () => {
     const result = validateVmConfig({
       name: 'vm',
-      secrets: [{ name: 'GOOD_KEY', value: 'x' }]
+      secrets: [{ name: 'GOOD_KEY', fromFile: 'relative/path' }]
+    });
+    expect(result.valid).toBe(false);
+  });
+
+  it('accepts valid secret refs', () => {
+    const result = validateVmConfig({
+      name: 'vm',
+      secrets: [
+        { name: 'GOOD_KEY', fromEnv: 'HOST_VAR' },
+        { name: 'FILE_KEY', fromFile: '/abs/path' }
+      ]
     });
     expect(result.valid).toBe(true);
   });

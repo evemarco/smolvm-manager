@@ -13,7 +13,7 @@
  *   `allowHosts`/`allowCidrs` names are silently ignored upstream.
  * - `init`, `sshAgent` and `gpuVramMb` are CLI-only and silently ignored by
  *   the HTTP API, so they are NOT emitted in create/update payloads.
- * - `dns` requires the local smolvm-api-dns.patch (adds it to the API).
+ * - `dns` requires the local smolvm-api-manager-parity.patch.
  *
  * Fields that require recreation (cannot be updated on a running/stopped VM):
  * - image, entrypoint, cmd, from
@@ -34,9 +34,19 @@ export type VmVolumeMount = {
   readOnly?: boolean;
 };
 
-export type VmSecretVar = {
+/**
+ * Secret reference, matching the upstream Smolfile `[secrets]` semantics and
+ * the 1.14 create API (`RequestSecretRefs`): each entry names one source —
+ * a host environment variable or an absolute host file — and never carries
+ * an inline value (upstream rejects one with a 400/parse error).
+ */
+export type VmSecretRef = {
+  /** Guest-side environment variable name the secret is injected as. */
   name: string;
-  value: string;
+  /** Host environment variable to read the secret from at resolution time. */
+  fromEnv?: string;
+  /** Absolute host file path to read the secret from. */
+  fromFile?: string;
 };
 
 export type VmConfig = {
@@ -57,7 +67,7 @@ export type VmConfig = {
   ports?: VmPortMapping[];
   volumes?: VmVolumeMount[];
   env?: Record<string, string>;
-  secrets?: VmSecretVar[];
+  secrets?: VmSecretRef[];
   dockerSocket?: boolean;
   restart?: string;
   registryIdentityToken?: string;
@@ -211,13 +221,26 @@ export function validateVmConfig(config: VmConfig): ValidationResult {
     }
   }
 
-  // Secret names follow the same rules as env keys
+  // Secret refs follow the upstream Smolfile contract: a POSIX-style guest
+  // env name, and exactly one source (fromEnv or fromFile) per ref.
   if (config.secrets) {
     for (const secret of config.secrets) {
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(secret.name)) {
         errors.push({
           field: 'secrets',
           message: `Invalid secret name: "${secret.name}".`
+        });
+      }
+      const sources = [secret.fromEnv !== undefined, secret.fromFile !== undefined].filter(Boolean).length;
+      if (sources !== 1) {
+        errors.push({
+          field: 'secrets',
+          message: `Secret "${secret.name}" must set exactly one of fromEnv or fromFile.`
+        });
+      } else if (secret.fromFile !== undefined && !secret.fromFile.startsWith('/')) {
+        errors.push({
+          field: 'secrets',
+          message: `Secret "${secret.name}" fromFile must be an absolute path.`
         });
       }
     }
@@ -346,11 +369,16 @@ export function configToToml(config: VmConfig): string {
     lines.push('');
   }
 
-  // Secrets section
+  // Secrets section (upstream format: name = { from_env | from_file } refs;
+  // a plain string value is not a valid secret anywhere in smolvm 1.14).
   if (config.secrets && config.secrets.length > 0) {
     lines.push('[secrets]');
     for (const secret of config.secrets) {
-      lines.push(`${secret.name} = "${escapeToml(secret.value)}"`);
+      if (secret.fromEnv !== undefined) {
+        lines.push(`${secret.name} = { from_env = "${escapeToml(secret.fromEnv)}" }`);
+      } else if (secret.fromFile !== undefined) {
+        lines.push(`${secret.name} = { from_file = "${escapeToml(secret.fromFile)}" }`);
+      }
     }
     lines.push('');
   }
@@ -476,7 +504,7 @@ export function parseTomlToConfig(toml: string): { config: VmConfig; errors: Val
         break;
       case 'secrets':
         config.secrets = config.secrets ?? [];
-        config.secrets.push({ name: key, value: String(value) });
+        config.secrets.push(parseSecretRef(key, value, errors, lineNum));
         break;
       case 'runtime':
         if (key === 'docker_socket') config.dockerSocket = Boolean(value);
@@ -519,11 +547,51 @@ function parseTomlValue(raw: string, errors: ValidationError[], lineNum: number)
     return raw; // Return as raw string for array parsing
   }
 
+  // Inline table ({ from_env = "..." } / { from_file = "..." }) — returned
+  // raw; only [secrets] consumes it (parseSecretRef).
+  if (raw.startsWith('{') && raw.endsWith('}')) {
+    return raw;
+  }
+
   errors.push({
     field: `line ${lineNum}`,
     message: `Cannot parse TOML value: "${raw}"`
   });
   return undefined;
+}
+
+/**
+ * Parse one `[secrets]` entry (upstream inline-table format:
+ * `NAME = { from_env = "..." }` or `NAME = { from_file = "..." }`).
+ * A plain string is a legacy inline value — upstream rejects those; surface
+ * it as a validation error instead of silently dropping the secret.
+ */
+function parseSecretRef(
+  name: string,
+  value: unknown,
+  errors: ValidationError[],
+  lineNum: number
+): VmSecretRef {
+  const fail = (message: string): VmSecretRef => {
+    errors.push({ field: `line ${lineNum}`, message });
+    return { name };
+  };
+  if (typeof value !== 'string') {
+    return fail(`Secret "${name}" must be an inline table: { from_env = "..." } or { from_file = "..." }.`);
+  }
+  if (!value.startsWith('{') || !value.endsWith('}')) {
+    // Legacy inline values ("SECRET = \"s3cr3t\"") are rejected upstream;
+    // surface them as a validation error instead of silently dropping.
+    return fail(
+      `Secret "${name}" uses an inline value; upstream secrets are references: ${name} = { from_env = "HOST_VAR" } or { from_file = "/abs/path" }.`
+    );
+  }
+  const fromEnv = /\bfrom_env\s*=\s*"([^"]*)"/.exec(value)?.[1];
+  const fromFile = /\bfrom_file\s*=\s*"([^"]*)"/.exec(value)?.[1];
+  if ((fromEnv !== undefined) === (fromFile !== undefined)) {
+    return fail(`Secret "${name}" must set exactly one of from_env or from_file.`);
+  }
+  return { name, ...(fromEnv !== undefined ? { fromEnv } : { fromFile }) };
 }
 
 function parseStringArray(raw: string): string[] {
@@ -594,8 +662,21 @@ export function configToCreateRequest(config: VmConfig): Record<string, unknown>
       ...(v.readOnly ? { readonly: true } : {})
     }));
   }
-  if (config.env && Object.keys(config.env).length > 0) req.env = config.env;
-  if (config.secrets && config.secrets.length > 0) req.secrets = config.secrets;
+  if (config.env && Object.keys(config.env).length > 0) {
+    // The create API takes env as an array of {name, value} (verified
+    // against 1.14.6 types.rs); an object map is rejected with a 400.
+    req.env = Object.entries(config.env).map(([name, value]) => ({ name, value }));
+  }
+  if (config.secrets && config.secrets.length > 0) {
+    // Upstream RequestSecretRefs: { NAME: { from_env | from_file } }; a
+    // sequence or an inline value is rejected with a 400.
+    req.secrets = Object.fromEntries(
+      config.secrets.map((s) => [
+        s.name,
+        s.fromEnv !== undefined ? { from_env: s.fromEnv } : { from_file: s.fromFile }
+      ])
+    );
+  }
   if (config.dockerSocket !== undefined) req.dockerSocket = config.dockerSocket;
   if (config.restart) req.restart = config.restart;
   if (config.registryIdentityToken) req.registryIdentityToken = config.registryIdentityToken;
@@ -619,33 +700,6 @@ export function defaultGuestDns(): string | undefined {
   if (raw === undefined || raw === '') return DEFAULT_GUEST_DNS;
   if (raw.toLowerCase() === 'none') return undefined;
   return raw;
-}
-
-/** Convert VmConfig to SmolVM update request body (only live-update fields). */
-export function configToUpdateRequest(config: VmConfig): Record<string, unknown> {
-  const req: Record<string, unknown> = {};
-
-  if (config.cpus !== undefined) req.cpus = config.cpus;
-  if (config.memory !== undefined) req.memoryMb = config.memory;
-  if (config.storage !== undefined) req.storageGb = config.storage;
-  if (config.overlay !== undefined) req.overlayGb = config.overlay;
-  if (config.net !== undefined) req.network = config.net;
-  if (config.gpu !== undefined) req.gpu = config.gpu;
-  if (config.gpuVram !== undefined) req.gpuVramMb = config.gpuVram;
-  if (config.ports && config.ports.length > 0) req.ports = config.ports;
-  if (config.volumes && config.volumes.length > 0) {
-    req.mounts = config.volumes.map((v) => ({
-      source: v.host,
-      target: v.guest,
-      ...(v.readOnly ? { readonly: true } : {})
-    }));
-  }
-  if (config.env && Object.keys(config.env).length > 0) req.env = config.env;
-  if (config.workdir) req.workdir = config.workdir;
-  if (config.allowHosts && config.allowHosts.length > 0) req.allowedHosts = config.allowHosts;
-  if (config.allowCidrs && config.allowCidrs.length > 0) req.allowedCidrs = config.allowCidrs;
-
-  return req;
 }
 
 /** Parse a SmolVM machine API response into a VmConfig. */

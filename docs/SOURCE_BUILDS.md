@@ -187,7 +187,9 @@ The complete kernel build is slow. Keep the default `auto` mode unless binary va
 
 ### Local Patches
 
-After cloning, the script applies every `*.patch` file found in `scripts/` to the SmolVM source tree. A patch that no longer applies cleanly — because upstream merged the fix or the surrounding code changed — is skipped with a log message and never fails the build. The only patch today is `scripts/smolvm-api-dns.patch`: it adds the CLI's per-machine `--dns` option to the HTTP create API (`CreateMachineRequest.dns`, wired through `ResourceSpec` into `VmRecord.dns`, folded into the create-path network decision, and carried through `.smolcheckpoint` restores — rebased onto 1.14.6); the manager relies on it to give guests Hetzner's resolver at create time. The build fails loudly through the normal compile step if this patch ever stops applying — do not let it be skipped silently; check the build log for "Applying local patch: smolvm-api-dns.patch".
+After cloning, the script applies every `*.patch` file found in `scripts/` to the SmolVM source tree. A patch that no longer applies cleanly — because upstream merged the fix or the surrounding code changed — is skipped with a log message and never fails the build. The build fails loudly through the normal compile step if a patch's runtime contract breaks — do not let that be skipped silently; check the build log for "Applying local patch". One consolidated patch exists today:
+
+- `scripts/smolvm-api-manager-parity.patch`: restores the HTTP/CLI parity required by the manager on SmolVM 1.14.6: per-machine DNS on create and checkpoint restore; persisted `image`/`workdir` in machine responses; and persisted `env`, `workdir`, and `user` defaults across exec, run, stream, and interactive terminal paths.
 
 Two host quirks hit on RHEL-family systems (both fixed or handled by the script):
 

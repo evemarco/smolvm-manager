@@ -165,11 +165,10 @@ apply_local_patches() {
         if git -C "$BUILD_DIR" apply --check "$patch_file" 2>/dev/null; then
             log "Applying local patch: $(basename "$patch_file") ..."
             git -C "$BUILD_DIR" apply "$patch_file"
-        elif [[ "$(basename "$patch_file")" == "smolvm-api-dns.patch" ]]; then
-            # The manager sends `dns` on every create; a build without this
-            # patch silently ignores it and guests fall back to the blocked
-            # compiled-in resolver. Fail loudly instead of skipping.
-            error "smolvm-api-dns.patch no longer applies cleanly. Verify whether upstream merged API dns support; if yes, delete the patch, otherwise rebase it."
+        elif [[ "$(basename "$patch_file")" == "smolvm-api-manager-parity.patch" ]]; then
+            # The manager depends on this HTTP/CLI parity contract. A silently
+            # skipped patch would lose DNS and persisted execution defaults.
+            error "smolvm-api-manager-parity.patch no longer applies cleanly. Verify whether upstream merged every parity fix; if yes, delete or reduce the patch, otherwise rebase it."
         else
             log "Skipping $(basename "$patch_file"): does not apply cleanly (already merged upstream or codebase changed)."
         fi
@@ -283,7 +282,10 @@ validate_distribution() {
 
     [[ -x "$dist_dir/smolvm" && -x "$dist_dir/smolvm-bin" ]] || return 1
     [[ -d "$dist_dir/agent-rootfs" ]] || return 1
-    [[ -f "$dist_dir/storage-template.ext4" && -f "$dist_dir/overlay-template.ext4" ]] || return 1
+    # Current releases ship sparse disk templates compressed with zstd; older
+    # releases installed them uncompressed. Accept either packaging contract.
+    [[ -f "$dist_dir/storage-template.ext4" || -f "$dist_dir/storage-template.ext4.zst" ]] || return 1
+    [[ -f "$dist_dir/overlay-template.ext4" || -f "$dist_dir/overlay-template.ext4.zst" ]] || return 1
     [[ -f "$lib_dir/libkrun.so" && -f "$lib_dir/libkrunfw.so" ]] || return 1
     if patchelf --print-needed "$lib_dir/libkrun.so" | grep -q '^libvirglrenderer\.so\.1$'; then
         log "Distribution validation failed: libvirglrenderer is still a hard dependency."

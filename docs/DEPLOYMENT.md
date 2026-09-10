@@ -32,7 +32,7 @@ This file documents a complete production deployment layout for [SmolVM Manager]
 1. Clone the repository to `/var/lib/smolvm-manager`.
 2. Install Pylon and SmolVM, or build them locally by following [`SOURCE_BUILDS.md`](SOURCE_BUILDS.md) when the published executables are incompatible with the host.
 3. Install the executables where the sandbox can reach them. The unit sets `ProtectHome=true`, so anything under `/root` or `/home` is invisible to the service — copy `bun` and `pylon` as real files (not symlinks into `/root`) to `/usr/local/bin/`, and install the full SmolVM distribution somewhere outside home directories such as `/opt/smolvm`.
-4. Confirm that `pylon --version` works and that SmolVM serves `/tmp/smolvm.sock`. The provided SmolVM unit copies the host resolver into both the installed and cached agent rootfs before every start; this prevents TSI image pulls from using a stale hard-coded public DNS server. Guest DNS itself is set per machine at create time: the manager builds SmolVM with `scripts/smolvm-api-dns.patch` (adds `dns` to the create API) and sends Hetzner's resolver `185.12.64.1` by default (`SMOLVM_GUEST_DNS` overrides, `none` opts out), so no host-level DNAT redirect is needed. Machines created before this change still resolve through the compiled-in `1.1.1.1` — recreate them to migrate.
+4. Confirm that `pylon --version` works and that SmolVM serves `/tmp/smolvm.sock`. The provided SmolVM unit copies the host resolver into both the installed and cached agent rootfs before every start; this prevents TSI image pulls from using a stale hard-coded public DNS server. Guest DNS itself is set per machine at create time: the manager's consolidated `scripts/smolvm-api-manager-parity.patch` adds `dns` to the HTTP API and sends Hetzner's resolver `185.12.64.1` by default (`SMOLVM_GUEST_DNS` overrides, `none` opts out). Machines created before this change must be recreated.
 5. Run `bun install` and `bun run build`.
 6. Create the `smolvm-manager` user and group:
 
@@ -118,13 +118,13 @@ When upstream executables cannot run on the deployment distribution, build them 
 ./scripts/build-smolvm.sh --version v1.14.6
 ```
 
-The SmolVM source build is **mandatory**, not optional, on hosts that need custom guest DNS (Hetzner included): the prebuilt GitHub binary has no `dns` field in its HTTP create API and silently ignores it, so guests would fall back to the blocked compiled-in `1.1.1.1` with no error. The build script applies `scripts/smolvm-api-dns.patch` and refuses to produce a silently-unpatched binary.
+The SmolVM source build is **mandatory** for the manager's full contract. The stock HTTP API lacks per-machine DNS and omits persisted fields needed for reliable update and exec behavior. The build script applies `scripts/smolvm-api-manager-parity.patch` and refuses to produce a silently unpatched binary.
 
 Do not install raw `libkrun.so` files directly from the SmolVM source tree. The project script runs the complete SmolVM distribution packaging step, which makes GPU libraries optional for non-GPU VMs and validates the resulting loader dependencies.
 
 ### Upgrading SmolVM
 
-Rebuild (or install) the new SmolVM version, then restart only `smolvm-serve.service`. The manager opens a fresh Unix-socket connection per request and needs neither a rebuild nor a restart; browser SSE/WebSocket streams reconnect on their own. The manager is verified against SmolVM 1.6.13–1.7.1 and 1.14.6 — see the "SmolVM Compatibility" section of the [README](../README.md) for the version-sensitive behaviors (strict boolean `follow`, per-machine guest DNS via the `smolvm-api-dns.patch` build, 1.7.0's stricter create/update validation, and 1.14's `branchable` rename plus strict fork payload contract).
+Rebuild (or install) the new SmolVM version, then restart only `smolvm-serve.service`. The manager opens a fresh Unix-socket connection per request and needs neither a rebuild nor a restart; browser SSE/WebSocket streams reconnect on their own. The manager is verified against SmolVM 1.6.13–1.7.1 and 1.14.6 — see the "SmolVM Compatibility" section of the [README](../README.md) for the version-sensitive API contract and the consolidated parity patch.
 
 SmolVM 1.14 adds a dedicated guest rollout ingress listener on `127.0.0.1:10081`
 (internal, lease-authenticated). If another service on the host already binds

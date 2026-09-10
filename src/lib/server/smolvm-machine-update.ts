@@ -85,12 +85,16 @@ export function buildMachineUpdatePlan(
 ): SmolVmMachineUpdatePlan {
   const original = machineResponseToConfig(machine);
   const diffs = diffConfigs(original, updated);
-  const recreateRequired = diffs.filter(
+  // PATCH semantics: a field absent from the update request means "leave
+  // unchanged" — the machine-update CLI only applies the flags it is given,
+  // so an omitted image/env/etc. must not read as a deletion.
+  const changed = diffs.filter((diff) => diff.newValue !== undefined);
+  const recreateRequired = changed.filter(
     (diff) =>
       diff.requiresRecreate &&
       !(diff.oldValue === undefined && IGNORABLE_UNKNOWN_ORIGINAL_FIELDS.has(diff.field))
   );
-  const unsupportedLiveUpdate = diffs.filter(
+  const unsupportedLiveUpdate = changed.filter(
     (diff) =>
       !diff.requiresRecreate &&
       !LIVE_UPDATABLE_FIELDS.has(diff.field) &&

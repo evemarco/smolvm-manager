@@ -15,7 +15,7 @@ ExecStartPre=/usr/bin/bash /var/lib/smolvm-manager/scripts/prepare-smolvm-runtim
 
 # Guest DNS is set per machine at create time (the manager sends
 # dns=185.12.64.1, Hetzner's resolver, by default; SMOLVM_GUEST_DNS
-# overrides). Requires the scripts/smolvm-api-dns.patch build, which adds
+# overrides). Requires scripts/smolvm-api-manager-parity.patch, which adds
 # `dns` to the create API. No host-level DNAT redirect is needed anymore.
 # Machines created before this change still resolve through the compiled-in
 # 1.1.1.1 — recreate them to migrate.

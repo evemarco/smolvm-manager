@@ -1,0 +1,360 @@
+diff --git a/src/api/handlers/exec.rs b/src/api/handlers/exec.rs
+index e8afa0b..46a60c4 100644
+--- a/src/api/handlers/exec.rs
++++ b/src/api/handlers/exec.rs
+@@ -71,7 +71,13 @@ pub async fn exec_command(
+     crate::api::handlers::validate_request_env(&req.env)?;
+     let record_env = crate::api::handlers::record_secret_refs_env(&entry)?;
+     let req_env = crate::api::handlers::resolve_request_secrets(&req.secrets)?;
+-    let mut env = EnvVar::to_tuples(&req.env);
++    // Env precedence (low -> high): record.env (create/update) -> req.env ->
++    // record.secret_refs -> req.secrets. CLI `machine exec` already merges
++    // the record's plain env (record_env_with_secrets); the HTTP API now
++    // matches it so exec sessions see the create-time variables.
++    let machine_rec = state.lookup_vm(&id).await?;
++    let mut env = crate::api::handlers::record_plain_env(machine_rec.as_ref());
++    env.extend(EnvVar::to_tuples(&req.env));
+     env.extend(crate::secrets::expose_into_env(record_env));
+     env.extend(crate::secrets::expose_into_env(req_env));
+ 
+@@ -81,9 +87,14 @@ pub async fn exec_command(
+     // overlay); plain machines run it in the VM.
+     if req.background {
+         let command = req.command.clone();
+-        let workdir = req.workdir.clone();
+-        let user = req.user.clone();
+-        let machine_rec = state.lookup_vm(&id).await?;
++        let workdir = req
++            .workdir
++            .clone()
++            .or_else(|| machine_rec.as_ref().and_then(|r| r.workdir.clone()));
++        let user = req
++            .user
++            .clone()
++            .or_else(|| machine_rec.as_ref().and_then(|r| r.user.clone()));
+         // An exec may be what establishes the workload container — the machine's
+         // command exited, or the image's own default was short-lived — and that
+         // container is where the mount lives, so the config has to target the
+@@ -134,8 +145,14 @@ pub async fn exec_command(
+     // Secrets already resolved into `env` above (shared with the background
+     // path); env precedence is req.env < record.secret_refs < req.secrets.
+     let command = req.command.clone();
+-    let workdir = req.workdir.clone();
+-    let user = req.user.clone();
++    let workdir = req
++        .workdir
++        .clone()
++        .or_else(|| machine_rec.as_ref().and_then(|r| r.workdir.clone()));
++    let user = req
++        .user
++        .clone()
++        .or_else(|| machine_rec.as_ref().and_then(|r| r.user.clone()));
+     let timeout = req.timeout_secs.map(Duration::from_secs);
+     let stdin_data = req.stdin.clone();
+ 
+@@ -144,7 +161,6 @@ pub async fn exec_command(
+     // sessions. Without this, exec runs in the bare agent VM (no `python3`,
+     // etc.) — the image is never entered. Plain machines exec in the VM
+     // directly via `vm_exec`.
+-    let machine_rec = state.lookup_vm(&id).await?;
+     // An exec may be what establishes the workload container — the machine's
+     // command exited, or the image's own default was short-lived — and that
+     // container is where the mount lives, so the config has to target the
+@@ -238,18 +254,31 @@ pub async fn exec_stream(
+     let req_env = crate::api::handlers::resolve_request_secrets(&req.secrets)?;
+ 
+     let command = req.command.clone();
+-    let mut env = EnvVar::to_tuples(&req.env);
++    // Env precedence (low -> high): record.env (create/update) -> req.env ->
++    // record.secret_refs -> req.secrets. CLI `machine exec` already merges
++    // the record's plain env (record_env_with_secrets); the HTTP API now
++    // matches it so exec sessions see the create-time variables.
++    let machine_rec = state.lookup_vm(&id).await?;
++    let mut env = crate::api::handlers::record_plain_env(machine_rec.as_ref());
++    env.extend(EnvVar::to_tuples(&req.env));
+     env.extend(crate::secrets::expose_into_env(record_env));
+     env.extend(crate::secrets::expose_into_env(req_env));
+-    let workdir = req.workdir.clone();
+-    let user = req.user.clone();
++    // CLI `machine exec` resolves workdir/user: request value first, then the
++    // machine record. The HTTP API now matches; image defaults still win over
++    // the record inside the agent's `resolve` (`workdir.or(info.workdir)`).
++    let workdir = req
++        .workdir
++        .clone()
++        .or_else(|| machine_rec.as_ref().and_then(|r| r.workdir.clone()));
++    let user = req
++        .user
++        .clone()
++        .or_else(|| machine_rec.as_ref().and_then(|r| r.user.clone()));
+     let timeout = req.timeout_secs.map(Duration::from_secs);
+ 
+     // Image-based machines stream from a container in their image (persistent
+     // overlay keyed by machine name); plain machines stream from the VM
+     // directly. Without this, streaming exec on an image machine produces no
+-    // output (the agent-base streaming path doesn't enter the container).
+-    let machine_rec = state.lookup_vm(&id).await?;
+     // An exec may be what establishes the workload container — the machine's
+     // command exited, or the image's own default was short-lived — and that
+     // container is where the mount lives, so the config has to target the
+@@ -381,11 +410,23 @@ pub async fn run_command(
+ 
+     let image = req.image.clone();
+     let command = req.command.clone();
+-    let mut env = EnvVar::to_tuples(&req.env);
++    // Env precedence (low -> high): record.env (create/update) -> req.env ->
++    // record.secret_refs -> req.secrets. CLI `machine exec` already merges
++    // the record's plain env (record_env_with_secrets); the HTTP API now
++    // matches it so exec sessions see the create-time variables.
++    let machine_rec = state.lookup_vm(&id).await?;
++    let mut env = crate::api::handlers::record_plain_env(machine_rec.as_ref());
++    env.extend(EnvVar::to_tuples(&req.env));
+     env.extend(crate::secrets::expose_into_env(record_env));
+     env.extend(crate::secrets::expose_into_env(req_env));
+-    let workdir = req.workdir.clone();
+-    let user = req.user.clone();
++    let workdir = req
++        .workdir
++        .clone()
++        .or_else(|| machine_rec.as_ref().and_then(|r| r.workdir.clone()));
++    let user = req
++        .user
++        .clone()
++        .or_else(|| machine_rec.as_ref().and_then(|r| r.user.clone()));
+     let timeout = req.timeout_secs.map(Duration::from_secs);
+ 
+     // Get mounts from machine config (converted to protocol format)
+@@ -476,6 +517,12 @@ pub async fn exec_interactive(
+             .map(|(i, m)| (HostMount::mount_tag(i), m.target.clone(), m.readonly))
+             .collect::<Vec<_>>()
+     };
++    // Interactive sessions get the record's plain env too (CLI `machine
++    // shell` parity): without this, a terminal opened on a machine created
++    // with env vars would silently lack them.
++    let interactive_env = crate::api::handlers::record_plain_env(machine_record.as_ref());
++    let interactive_workdir = machine_record.as_ref().and_then(|r| r.workdir.clone());
++    let interactive_user = machine_record.as_ref().and_then(|r| r.user.clone());
+ 
+     Ok(ws.on_upgrade(move |socket| async move {
+         let (mut ws_tx, mut ws_rx) = socket.split();
+@@ -529,6 +576,9 @@ pub async fn exec_interactive(
+                         }
+                     }
+                     let config = crate::agent::RunConfig::new(image, command)
++                        .with_env(interactive_env)
++                        .with_workdir(interactive_workdir)
++                        .with_user(interactive_user)
+                         .with_mounts(mounts_config)
+                         .with_tty(true)
+                         .in_machine_opt(machine_for_run.as_ref(), &id, &[]);
+@@ -540,7 +590,7 @@ pub async fn exec_interactive(
+                         })
+                 } else {
+                     client
+-                        .vm_exec_interactive_io(command, Vec::new(), None, true, in_rx, on_output)
++                        .vm_exec_interactive_io(command, interactive_env, interactive_workdir, true, in_rx, on_output)
+                         .unwrap_or_else(|e| {
+                             tracing::warn!(error = ?e, "pty: interactive vm_exec failed");
+                             -1
+diff --git a/src/api/handlers/machines.rs b/src/api/handlers/machines.rs
+index df1042f..0c24d99 100644
+--- a/src/api/handlers/machines.rs
++++ b/src/api/handlers/machines.rs
+@@ -109,6 +109,8 @@ fn record_to_info(name: &str, record: &VmRecord) -> MachineInfo {
+         network_backend: record.network_backend,
+         allowed_cidrs: record.allowed_cidrs.clone(),
+         allowed_hosts: record.dns_filter_hosts.clone(),
++        image: record.image.clone(),
++        workdir: record.workdir.clone(),
+         // Report the RESOLVED provisioned disk sizes, not the request echo: a
+         // machine created without an explicit size still gets a real disk at the
+         // node default, and billing/telemetry need the actual allocated GiB, not
+@@ -851,6 +853,13 @@ pub async fn create_machine(
+     let restored_allowed_hosts = checkpoint_network
+         .and_then(|network| network.dns_filter_hosts.clone())
+         .or_else(|| req.allowed_hosts.clone());
++    // The checkpoint's captured DNS override wins (same precedence as the
++    // restored egress policy); for a fresh machine the request value is used,
++    // and without either the backend default applies.
++    let restored_dns = checkpoint_network
++        .and_then(|network| network.dns.as_deref())
++        .and_then(|dns| dns.parse().ok())
++        .or(req.dns);
+     if let Some(network) = checkpoint_network {
+         normalized_cidrs = network.allowed_cidrs.clone();
+     }
+@@ -897,9 +906,12 @@ pub async fn create_machine(
+     }
+     .validate()
+     .map_err(|e| ApiError::BadRequest(e.to_string()))?;
++    // CLI parity: `--dns` implies --net (see resolve_egress_flags and
++    // smolfile.rs), and a nameserver without any network backend is a silent
++    // no-op — force the network on when the caller set one.
+     let network = checkpoint_network
+         .map(|network| network.enabled)
+-        .unwrap_or(req.network || manifest_net);
++        .unwrap_or(req.network || manifest_net || restored_dns.is_some());
+ 
+     // Reserve the name atomically (prevents concurrent creation)
+     let guard = ReservationGuard::new(&state, name.clone())?;
+@@ -1097,6 +1109,7 @@ pub async fn create_machine(
+         allowed_cidrs: normalized_cidrs,
+         allowed_hosts: restored_allowed_hosts,
+         network_backend: restored_network_backend,
++        dns: restored_dns,
+     };
+ 
+     // Validate request-body secret refs before persisting. Untrusted
+@@ -3893,6 +3906,7 @@ mod tests {
+             allowed_cidrs: None,
+             allowed_hosts: None,
+             network_backend: None,
++            dns: None,
+             restart: None,
+             image: None,
+             from: None,
+diff --git a/src/api/handlers/mod.rs b/src/api/handlers/mod.rs
+index e1c08e3..4f59be6 100644
+--- a/src/api/handlers/mod.rs
++++ b/src/api/handlers/mod.rs
+@@ -45,6 +45,17 @@ pub(crate) fn record_secret_refs_env(
+     .map_err(classify_resolution_error)
+ }
+ 
++/// Plain env of a looked-up [`VmRecord`] for exec/run handlers.
++///
++/// CLI `machine exec` merges the record's persisted plain env
++/// (`record_env_with_secrets`); HTTP exec/run handlers use this to match
++/// that behavior. `None` (machine without a record) contributes nothing.
++pub(crate) fn record_plain_env(
++    record: Option<&crate::config::VmRecord>,
++) -> Vec<(String, String)> {
++    record.map(|r| r.env.clone()).unwrap_or_default()
++}
++
+ /// Map a classified [`ResolutionError`] to an [`ApiError`] per the
+ /// status-code table in `docs/secrets-api-pack-plan.md` §4.3.
+ ///
+diff --git a/src/api/state.rs b/src/api/state.rs
+index 7589c76..6bc2f06 100644
+--- a/src/api/state.rs
++++ b/src/api/state.rs
+@@ -505,6 +505,7 @@ impl ApiState {
+                 allowed_cidrs: record.allowed_cidrs.clone(),
+                 allowed_hosts: record.dns_filter_hosts.clone(),
+                 network_backend: record.network_backend,
++                dns: record.dns,
+             };
+ 
+             // Create AgentManager and try to reconnect
+@@ -1020,6 +1021,7 @@ impl ApiState {
+         record.allowed_cidrs = reg.resources.allowed_cidrs.clone();
+         record.dns_filter_hosts = reg.resources.allowed_hosts.clone();
+         record.network_backend = reg.resources.network_backend;
++        record.dns = reg.resources.dns;
+         // GPU flags (previously dropped here, so API-created machines
+         // silently lost CUDA/GPU on restart).
+         record.gpu = reg.resources.gpu;
+@@ -1638,9 +1640,9 @@ pub fn resource_spec_to_vm_resources(spec: &ResourceSpec, network: bool) -> VmRe
+         overlay_gib: spec.overlay_gb,
+         block_io: spec.block_io.unwrap_or_default(),
+         allowed_cidrs: spec.allowed_cidrs.clone(),
+-        // Custom DNS is a local-CLI feature for now; the cloud ResourceSpec
+-        // does not expose it, so API-launched VMs inherit the backend default.
+-        dns: None,
++        // ResourceSpec carries the per-machine custom DNS override (API parity
++        // with the CLI `--dns`); None keeps the backend default.
++        dns: spec.dns,
+         network_name: None,
+     }
+ }
+@@ -1661,6 +1663,7 @@ pub fn vm_resources_to_spec(res: VmResources) -> ResourceSpec {
+         // back from the source record (see the MachineEntry reload path).
+         allowed_hosts: None,
+         network_backend: res.network_backend,
++        dns: res.dns,
+     }
+ }
+ 
+@@ -1736,6 +1739,10 @@ pub fn machine_entry_to_info(name: String, entry: &MachineEntry) -> MachineInfo
+         allowed_hosts: entry.resources.allowed_hosts.clone(),
+         storage_gb: entry.resources.storage_gb,
+         overlay_gb: entry.resources.overlay_gb,
++        // The in-memory entry carries no image/workdir; database-backed
++        // paths (record_to_info) fill these from the persisted record.
++        image: None,
++        workdir: None,
+         block_io: entry.resources.block_io.unwrap_or_default(),
+         branchable: entry.forkable,
+         forkable: entry.forkable,
+@@ -1852,6 +1859,7 @@ mod tests {
+             allowed_cidrs: None,
+             allowed_hosts: None,
+             network_backend: None,
++            dns: None,
+         };
+         let res = resource_spec_to_vm_resources(&spec, false);
+         assert_eq!(res.cpus, DEFAULT_MICROVM_CPU_COUNT);
+@@ -1918,6 +1926,7 @@ mod tests {
+                     allowed_cidrs: None,
+                     allowed_hosts: None,
+                     network_backend: None,
++                    dns: None,
+                 },
+                 restart: RestartConfig::default(),
+                 network: false,
+@@ -1986,6 +1995,7 @@ mod tests {
+                     allowed_cidrs: None,
+                     allowed_hosts: None,
+                     network_backend: None,
++                    dns: None,
+                 },
+                 restart: RestartConfig::default(),
+                 network: false,
+diff --git a/src/api/types.rs b/src/api/types.rs
+index 07cd4a6..555d941 100644
+--- a/src/api/types.rs
++++ b/src/api/types.rs
+@@ -132,6 +132,12 @@ pub struct ResourceSpec {
+     /// lighter outbound-only backend (rejected alongside published `ports`).
+     #[serde(default)]
+     pub network_backend: Option<crate::network::NetworkBackend>,
++    /// Custom guest DNS resolver (single IPv4). Overrides the backend default
++    /// for this machine: written into the guest resolv.conf under TSI, or used
++    /// as the gateway upstream under virtio-net.
++    #[serde(default)]
++    #[schema(value_type = String)]
++    pub dns: Option<std::net::Ipv4Addr>,
+ }
+ 
+ // ============================================================================
+@@ -628,6 +634,13 @@ pub struct CreateMachineRequest {
+     /// path), so that combination is rejected.
+     #[serde(default)]
+     pub network_backend: Option<crate::network::NetworkBackend>,
++    /// Custom guest DNS resolver (single IPv4), same semantics as the CLI
++    /// `machine create --dns`: written into the guest resolv.conf under TSI,
++    /// or used as the gateway upstream under virtio-net. Omit for the backend
++    /// default.
++    #[serde(default)]
++    #[schema(value_type = String)]
++    pub dns: Option<std::net::Ipv4Addr>,
+     /// Restart policy configuration.
+     #[serde(default)]
+     pub restart: Option<RestartSpec>,
+@@ -727,6 +740,15 @@ pub struct MachineInfo {
+     #[serde(skip_serializing_if = "Option::is_none")]
+     #[schema(example = 2)]
+     pub overlay_gb: Option<u64>,
++    /// OCI image reference the machine's workload runs from. `None` for
++    /// bare machines (created from `from` artifacts or with no image at all).
++    /// The CLI status output has always shown it; control planes need it to
++    /// diff live config for update planning.
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub image: Option<String>,
++    /// Workload working directory persisted on the record.
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub workdir: Option<String>,
+     /// Host block I/O engine used by this machine.
+     pub block_io: crate::data::resources::BlockIoEngine,
+     /// Whether ordinary starts launch this machine as a branch source.
